@@ -1,0 +1,12 @@
+# Auto-provision the Prometheus datasource. The uid matches the one baked into
+# grafana/dashboards/cpx-dashboard.json so the panels resolve without a manual import.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: cpx-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

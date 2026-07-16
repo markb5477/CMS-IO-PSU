@@ -1,0 +1,6 @@
+# Install in a user venv on cmsladdertest:
+#   python3 -m venv ~/cpx-venv && ~/cpx-venv/bin/pip install -r requirements.txt
+pymeasure>=0.16
+
+# Only for direct mode (straight to the PSU over VISA, bench bring-up):
+# pyvisa-py>=0.7

@@ -1,0 +1,33 @@
+groups:
+  - name: cpx_psu
+    rules:
+      - alert: CPXExporterDown
+        expr: up{job="cpx_psu"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "cpx-exporter on cmsladdertest is not responding to scrapes"
+
+      - alert: CPXInstrumentUnreachable
+        expr: cpx_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Exporter is up but cannot talk to the CPX200DP (LAN cable? PSU mains?)"
+
+      - alert: CPXOutputTripped
+        expr: cpx_trip_overvoltage == 1 or cpx_trip_overcurrent == 1
+        labels:
+          severity: critical
+        annotations:
+          summary: "CPX200DP channel {{ $labels.channel }} has tripped (OVP/OCP)"
+
+      - alert: CPXStuckInCurrentLimit
+        expr: cpx_constant_current == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPX200DP channel {{ $labels.channel }} has been in constant-current mode for 5m (load drawing more than the limit)"

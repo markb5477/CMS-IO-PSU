@@ -1,0 +1,56 @@
+# Portable Prometheus + Grafana stack for the CPX PSU monitoring.
+# Runs anywhere with Docker; move the folder to another box and it comes up the same.
+#   ./on.sh   -> docker compose up -d
+#   ./off.sh  -> docker compose down
+# Values interpolated from .env (copy .env.example to .env on the host).
+name: cpx-monitoring
+
+services:
+  # SSH reverse tunnel to the lab PC - direct scraping of :9820 is firewalled,
+  # so Prometheus scrapes this sidecar (psu-tunnel:9820) instead. Requires
+  # tunnel/id_ed25519 present and its .pub in xtaldaq@cmsladdertest authorized_keys.
+  psu-tunnel:
+    build: ./tunnel
+    container_name: cpx-psu-tunnel
+    restart: unless-stopped
+    environment:
+      - SSH_TARGET=${TUNNEL_SSH_TARGET:-xtaldaq@cmsladdertest.dyndns.cern.ch}
+      - REMOTE_HOSTPORT=${TUNNEL_REMOTE_HOSTPORT:-127.0.0.1:9820}
+      - LOCAL_PORT=9820
+    volumes:
+      - ./tunnel/id_ed25519:/tunnel/id_ed25519:ro
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: cpx-prometheus
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    depends_on:
+      - psu-tunnel
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: cpx-grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+  grafana-data:

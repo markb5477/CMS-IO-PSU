@@ -1,0 +1,14 @@
+[Unit]
+Description=Prometheus exporter and control daemon for the Aim-TTi CPX200DP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/cpx-psu-monitor
+ExecStart=/usr/bin/python3 /opt/cpx-psu-monitor/exporter.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Control the CPX200DP via the local cpx-exporter.
+
+  psuctl status
+  psuctl set 1 -v 5.0 -i 0.5
+  psuctl on 1
+  psuctl off all
+  psuctl reset                # clear OVP/OCP trips
+  psuctl local --pause 120    # hand the front panel back
+"""
+
+import argparse
+import json
+import sys
+import urllib.error
+import urllib.request
+
+import config
+
+DEFAULT_URL = config.EXPORTER_URL
+
+
+def call(base, method, path, payload=None):
+    req = urllib.request.Request(base + path, method=method)
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode()
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, data=data, timeout=15) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        sys.exit(f"error: {exc.read().decode().strip()}")
+    except urllib.error.URLError as exc:
+        sys.exit(f"error: cannot reach exporter at {base} ({exc.reason}), "
+                 f"is cpx-exporter running?")
+
+
+def print_state(data):
+    if "idn" in data:
+        print(f"instrument: {data.get('idn') or 'unknown'}")
+    up = data.get("up")
+    if not up:
+        print("reachable:  NO - exporter cannot talk to the PSU")
+        return
+    chans = data.get("channels") or {}
+    print(f"{'CH':<4}{'OUTPUT':<8}{'V_SET':>8}{'V_OUT':>8}{'I_SET':>8}{'I_OUT':>8}  MODE  TRIPS")
+    for ch in sorted(chans):
+        c = chans[ch]
+        mode = "CC" if c["constant_current"] else ("CV" if c["constant_voltage"] else "-")
+        trips = ",".join(n for n in ("trip_overvoltage", "trip_overcurrent") if c[n]) or "-"
+        print(f"{ch:<4}{('ON' if c['output_enabled'] else 'off'):<8}"
+              f"{c['set_voltage']:>7.2f}V{c['output_voltage']:>7.2f}V"
+              f"{c['set_current']:>7.3f}A{c['output_current']:>7.3f}A"
+              f"  {mode:<4}  {trips}")
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--url", default=DEFAULT_URL, help="exporter base URL")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("status", help="show live PSU state")
+
+    for name in ("on", "off"):
+        p = sub.add_parser(name, help=f"switch output(s) {name}")
+        p.add_argument("channel", nargs="?", default="all", choices=["1", "2", "all"])
+
+    p = sub.add_parser("set", help="set voltage / current limit / OVP / OCP")
+    p.add_argument("channel", choices=["1", "2"])
+    p.add_argument("-v", "--voltage", type=float, help="voltage setpoint [V]")
+    p.add_argument("-i", "--current", type=float, help="current limit [A]")
+    p.add_argument("--ovp", type=float, help="over-voltage protection level [V]")
+    p.add_argument("--ocp", type=float, help="over-current protection level [A]")
+
+    sub.add_parser("reset", help="clear OVP/OCP trip conditions (TRIPRST)")
+
+    p = sub.add_parser("local", help="return front panel to local control")
+    p.add_argument("--pause", type=float, default=60,
+                   help="seconds to pause polling so the panel stays local (default 60)")
+
+    args = ap.parse_args()
+
+    if args.cmd == "status":
+        print_state(call(args.url, "GET", "/status"))
+    elif args.cmd in ("on", "off"):
+        res = call(args.url, "POST", "/control",
+                   {"action": args.cmd, "channel": args.channel})
+        print("sent:", "; ".join(res["sent"]))
+        print_state(res["state"])
+    elif args.cmd == "set":
+        res = call(args.url, "POST", "/control",
+                   {"action": "set", "channel": args.channel, "voltage": args.voltage,
+                    "current": args.current, "ovp": args.ovp, "ocp": args.ocp})
+        print("sent:", "; ".join(res["sent"]))
+        print_state(res["state"])
+    elif args.cmd == "reset":
+        res = call(args.url, "POST", "/control", {"action": "triprst"})
+        print("sent:", "; ".join(res["sent"]))
+        print_state(res["state"])
+    elif args.cmd == "local":
+        res = call(args.url, "POST", "/control", {"action": "local", "pause": args.pause})
+        print(f"front panel unlocked, polling paused for {res['paused_seconds']:.0f}s "
+              f"(any psuctl command re-enters remote mode)")
+
+
+if __name__ == "__main__":
+    main()

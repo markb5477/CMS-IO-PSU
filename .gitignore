@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.csv
+cpx-venv/
+.env
+monitoring/prometheus/prometheus.yml
+monitoring/tunnel/id_ed25519
+monitoring/tunnel/id_ed25519.pub
