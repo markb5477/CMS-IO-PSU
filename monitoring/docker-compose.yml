@@ -32,6 +32,9 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
+      # keep 6 months of data before it's dropped (Prometheus has no "month"
+      # unit; 180d ~= 6 months). At ~4s scrape / ~36 series this is well under 1 GB.
+      - --storage.tsdb.retention.time=180d
       - --web.enable-lifecycle
     depends_on:
       - psu-tunnel
