@@ -31,3 +31,37 @@ groups:
           severity: warning
         annotations:
           summary: "CPX200DP channel {{ $labels.channel }} has been in constant-current mode for 5m (load drawing more than the limit)"
+
+  - name: ot_bert
+    rules:
+      - alert: BERTExporterDown
+        expr: up{job="bert_status"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "bert-exporter on cmsladdertest is not responding to scrapes"
+
+      - alert: BERTLoggingStalled
+        expr: bert_up == 1 and bert_last_sample_timestamp_seconds > 0 and (time() - bert_last_sample_timestamp_seconds) > 300
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "BER log has not gained a new sample in >5m (continuous BER test stopped or hung?)"
+
+      - alert: BERTNoFile
+        expr: bert_up == 1 and bert_file_present == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "bert-exporter is running but found no bertContinuous.csv to follow (no run started, or wrong BERT_RESULTS_ROOT?)"
+
+      - alert: BERTHighErrorRate
+        expr: bert_bit_error_rate > 1e-6
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High bit error rate on board {{ $labels.board }} hybrid {{ $labels.hybrid }} line {{ $labels.line }}: {{ $value }}"

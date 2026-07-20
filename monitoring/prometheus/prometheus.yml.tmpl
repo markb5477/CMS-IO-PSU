@@ -15,3 +15,11 @@ scrape_configs:
         labels:
           instrument: ${INSTRUMENT}
           location: ${LOCATION}
+
+  - job_name: bert_status
+    scrape_interval: ${BERT_SCRAPE_INTERVAL}
+    static_configs:
+      - targets: ["${BERT_EXPORTER_TARGET}"]
+        labels:
+          instrument: ot_bert
+          location: ${LOCATION}

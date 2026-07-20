@@ -17,6 +17,9 @@ services:
       - SSH_TARGET=${TUNNEL_SSH_TARGET:-xtaldaq@cmsladdertest.dyndns.cern.ch}
       - REMOTE_HOSTPORT=${TUNNEL_REMOTE_HOSTPORT:-127.0.0.1:9820}
       - LOCAL_PORT=9820
+      # second forward for the BERT status exporter (same host, same ssh connection)
+      - BERT_LOCAL_PORT=9821
+      - BERT_REMOTE_HOSTPORT=${TUNNEL_BERT_REMOTE_HOSTPORT:-127.0.0.1:9821}
     volumes:
       - ./tunnel/id_ed25519:/tunnel/id_ed25519:ro
 

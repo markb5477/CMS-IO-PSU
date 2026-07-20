@@ -1,0 +1,14 @@
+[Unit]
+Description=Prometheus exporter for the mm_acf continuous BER test log (bertContinuous.csv)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/bert-monitor
+ExecStart=/usr/bin/python3 /opt/bert-monitor/exporter.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

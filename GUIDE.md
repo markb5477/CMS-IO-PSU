@@ -1,7 +1,10 @@
 # Running an experiment on the PSU
 
 Everything runs against the real instrument through the exporter, so the same
-safety checks as monitoring apply.
+checks as monitoring apply — note that the setpoint guards are **currently
+disabled** (limits raised to 100000 in `exporter.py` and `psu-server/.env`), so
+nothing is rejected in software. Only the CPX200DP's own limits protect the load;
+set V/I deliberately. See the safety note in README.md to re-enable the guards.
 
 ## 0. Moving the rig
 
@@ -85,7 +88,8 @@ For more than a couple of points, script it. `experiments/ramp.py` is a
 pymeasure `Procedure` that steps voltage from `--v-start` to `--v-stop`, dwells
 at each point, logs V/I/power and the CV/CC/TRIP mode to CSV, and runs
 `shutdown()` even on abort or trip so the output is always left off. It drives
-the PSU through the exporter, so the same ceilings and envelope apply.
+the PSU through the exporter, so whatever ceilings and envelope are configured
+apply (currently none — see the note at the top).
 
 Setup (venv, once per machine):
 
@@ -225,3 +229,52 @@ Then `ssh -N grafana` and browse `http://localhost:3000`.
 If the page is empty and SSH keeps printing `channel N: open failed: connect
 failed: Connection refused`, the tunnel is fine but the service is down, the
 stack is stopped. Run `./on.sh` on the host and reload.
+
+## 5. Get the BER test into Grafana
+
+The mm_acf continuous BER test logs to a CSV; `bert-server/exporter.py` follows
+that file and Prometheus scrapes it as the `bert_status` job. Nothing about the
+DAQ changes — the exporter only reads.
+
+Order matters only in that the exporter needs a file to find. Start the DAQ run
+first, then bring the exporter up (or leave it running; it picks up each new run
+automatically when `BERT_RESULTS_ROOT` is set and a newer
+`bertContinuous.csv` appears).
+
+On the lab PC:
+
+```sh
+cd ~/bert-monitor
+$EDITOR .env             # BERT_RESULTS_ROOT = where the DAQ is launched from
+./on.sh
+curl -s localhost:9821/status | grep -m1 path    # the CSV it locked onto
+```
+
+If `path` is `null` / `bert_file_present 0`, the glob matched nothing: either the
+root is wrong, or the run hasn't created its `Results/OT_ModuleTest_*_Run*/`
+directory yet. Full config detail is in README.md, "Pointing the BER exporter at
+the CSV".
+
+On the monitoring host, the BER scrape comes up with the rest of the stack
+(`./on.sh` in `~/monitoring`) — the `psu-tunnel` sidecar forwards :9821 alongside
+:9820. Confirm in Prometheus (Status > Targets) that job `bert_status` is UP,
+then open the **OT Module BER** dashboard in Grafana.
+
+What you should see, and what is normal:
+
+- `bert_up 1` and **Rows logged** climbing — the file is being read.
+- **Per-link BER curves that are flat between updates.** The DAQ round-robins
+  across lines and caches a phase scan per line, so a given link updates only
+  once per full cycle (~1 h at the GIPHT config). Flat is correct; the
+  file-level **File written (age)** panel is the real liveness signal.
+- **Gaps (NaN) on a link** — the DAQ logged a hardware read-failure sentinel for
+  that sample. Deliberately shown as a gap rather than a bogus 4-billion spike;
+  `bert_invalid_samples_total` counts them.
+
+To rehearse any of this without the DAQ, feed the exporter a fake CSV:
+
+```sh
+cd ~/bert-monitor
+python3 tests/fake_bert_csv.py /tmp/bert/Results/run1/bertContinuous.csv --live
+BERT_RESULTS_ROOT=/tmp/bert python3 exporter.py --port 9821
+```

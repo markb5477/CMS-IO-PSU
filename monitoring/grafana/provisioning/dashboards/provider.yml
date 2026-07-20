@@ -1,4 +1,6 @@
-# Load any dashboard JSON found in /var/lib/grafana/dashboards on startup.
+# Load dashboard JSON on startup. Each provider maps a subfolder of
+# /var/lib/grafana/dashboards to its own Grafana folder, so the PSU and BER
+# views stay separate. Add a JSON to the matching subfolder to extend a view.
 apiVersion: 1
 
 providers:
@@ -10,5 +12,16 @@ providers:
     updateIntervalSeconds: 30
     allowUiUpdates: true
     options:
-      path: /var/lib/grafana/dashboards
+      path: /var/lib/grafana/dashboards/cpx
+      foldersFromFilesStructure: false
+
+  - name: bert
+    orgId: 1
+    folder: OT Module BER
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/bert
       foldersFromFilesStructure: false

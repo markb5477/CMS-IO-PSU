@@ -11,6 +11,15 @@ cd "$(dirname "$0")"
 
 PORT="${HTTP_PORT:-9820}"
 
+# PIDs currently listening on the metrics port (empty if none / no ss). Reaping
+# by PORT rather than by 'exporter.py' is what keeps this from killing the BER
+# exporter, which is also named exporter.py but owns a different port (:9821).
+pids_on_port() {
+    command -v ss >/dev/null 2>&1 || return 0
+    ss -ltnpH 2>/dev/null | awk -v p=":${PORT}\$" '$4 ~ p' \
+        | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u
+}
+
 # 1) the managed user service
 if systemctl --user stop cpx-exporter 2>/dev/null; then
     echo "cpx-exporter (user service) stopped."
@@ -18,16 +27,16 @@ else
     echo "cpx-exporter user service not running (or not installed)."
 fi
 
-# 2) any exporter.py started outside systemd (foreground test, old shell, etc.)
-strays="$(pgrep -f 'exporter\.py' || true)"
+# 2) any exporter started outside systemd (foreground test, old shell, etc.)
+strays="$(pids_on_port || true)"
 if [ -n "$strays" ]; then
-    echo "found exporter.py running outside the service - stopping it:"
-    ps -o pid,etime,args -p $strays || true
+    echo "found process(es) still holding :${PORT} outside the service - stopping:"
+    ps -o pid,etime,args -p $strays 2>/dev/null || true
     kill $strays 2>/dev/null || true
     sleep 1
-    still="$(pgrep -f 'exporter\.py' || true)"
+    still="$(pids_on_port || true)"
     [ -n "$still" ] && kill -9 $still 2>/dev/null || true
-    echo "stray exporter.py stopped."
+    echo "stray exporter stopped."
 fi
 
 # 3) sanity: nothing left listening on the metrics port

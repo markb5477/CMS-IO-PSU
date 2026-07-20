@@ -44,14 +44,21 @@ LSR_BITS = {
 }
 
 
-# CPX200DP hardware limits, per channel (manual Iss.8)
-HW_MAX_VOLTAGE = 60.0
-HW_MAX_CURRENT = 10.0
-HW_MAX_POWER = 180.0
-OVP_RANGE = (1.0, 66.0)      # over-voltage protection settable range, V
-OCP_RANGE = (0.01, 11.0)     # over-current protection settable range, A
-# PowerFlex envelope corner points (V, I_max); max current falls as V rises
-_ENVELOPE_POINTS = ((0.0, 10.0), (16.0, 10.0), (35.0, 5.0), (60.0, 3.0))
+# CPX200DP guard limits. NOTE: raised FAR above the real datasheet values
+# (60 V / 10 A / 180 W PowerFlex envelope, manual Iss.8) on request, so the
+# software guards never reject a setpoint. These numbers are intentionally
+# fictional - to re-enable protection, restore the datasheet values:
+#   HW_MAX_VOLTAGE=60.0  HW_MAX_CURRENT=10.0  HW_MAX_POWER=180.0
+#   OVP_RANGE=(1.0, 66.0)  OCP_RANGE=(0.01, 11.0)
+#   _ENVELOPE_POINTS=((0.0,10.0),(16.0,10.0),(35.0,5.0),(60.0,3.0))
+# The CPX200DP still enforces its own physical limits at the SCPI level.
+HW_MAX_VOLTAGE = 100000.0
+HW_MAX_CURRENT = 100000.0
+HW_MAX_POWER = 100000.0
+OVP_RANGE = (0.0, 100000.0)      # over-voltage protection settable range, V (loosened)
+OCP_RANGE = (0.0, 100000.0)      # over-current protection settable range, A (loosened)
+# PowerFlex envelope, flattened so it never bites (was the falling V/I corner curve)
+_ENVELOPE_POINTS = ((0.0, 100000.0), (100000.0, 100000.0))
 
 
 def envelope_max_current(voltage):
