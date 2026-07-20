@@ -9,8 +9,8 @@ hop 2 makes every later check meaningless, so don't skip ahead.
 
 ```
 [1] CPX200DP ──192.168.50.0/24 (USB dongle)──► [2] lab PC  cmsladdertest
-                                                    ├─ cpx-exporter  :9820 (loopback only)
-                                                    └─ bert-exporter :9821 (loopback only)
+                                                    ├─ cpx-exporter  :9820 (binds 0.0.0.0)
+                                                    └─ bert-exporter :9821 (binds 127.0.0.1)
                                                           ▲ follows bertContinuous.csv
                                                           │ written by the mm_acf DAQ
                                                           │
@@ -29,9 +29,14 @@ hop 2 makes every later check meaningless, so don't skip ahead.
 
 Two facts that prevent most false alarms:
 
-- **The exporters bind to loopback (`127.0.0.1`) on purpose.** Curling
-  `cmsladdertest:9820` from anywhere else will *always* fail. That is correct,
-  not a fault — the only legitimate path in is the SSH tunnel (hop 3/4).
+- **The two exporters bind differently — don't read across.** The PSU exporter
+  binds `0.0.0.0` (`LISTEN` in `psu-server/.env`), so `cmsladdertest:9820` *may*
+  answer from another machine if the firewall allows it; its `/control` and
+  `/scpi` are still refused to non-localhost callers, so only `/metrics` and
+  `/status` are exposed. The BER exporter binds `127.0.0.1`
+  (`BERT_LISTEN`), so `cmsladdertest:9821` will **never** answer from off-box —
+  that is correct, not a fault. Either way the intended path in is the SSH
+  tunnel, and a failed direct curl to :9821 proves nothing about the chain.
 - **A scrape target showing `up` does not mean the instrument is connected.**
   `up` only means the exporter answered HTTP. Whether the PSU is actually on the
   other end is `cpx_up`, and whether the DAQ's CSV is being found is
@@ -139,12 +144,15 @@ are called `exporter.py`, and they are told apart by **port**.
 
 ```sh
 systemctl --user status cpx-exporter bert-exporter --no-pager | head -20
-ss -ltnp | grep -E ':(9820|9821)'      # both listening on 127.0.0.1
+ss -ltnp | grep -E ':(9820|9821)'      # 9820 on 0.0.0.0, 9821 on 127.0.0.1
 curl -s localhost:9820/metrics | head -3
 curl -s localhost:9821/metrics | head -3
 ```
 
-Expect both listening on `127.0.0.1:9820` and `127.0.0.1:9821`.
+Expect `0.0.0.0:9820` (PSU, per `LISTEN`) and `127.0.0.1:9821` (BER, per
+`BERT_LISTEN`). Both are dialled as `127.0.0.1` by the tunnel, which works for
+either bind — so a difference here is only a question of who *else* can reach
+them, not whether the chain works.
 
 **Not running:**
 

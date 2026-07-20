@@ -4,5 +4,6 @@ __pycache__/
 cpx-venv/
 .env
 monitoring/prometheus/prometheus.yml
+monitoring/storage/
 monitoring/tunnel/id_ed25519
 monitoring/tunnel/id_ed25519.pub

@@ -37,3 +37,8 @@ POLL_INTERVAL = float(_req("POLL_INTERVAL"))
 MAX_VOLTAGE = float(_req("MAX_VOLTAGE"))
 MAX_CURRENT = float(_req("MAX_CURRENT"))
 EXPORTER_URL = f"http://{HTTP_HOST}:{HTTP_PORT}"
+
+# Raw-socket address of the PSU, for experiments run in --mode direct (bench
+# bring-up, exporter stopped). Derived from PSU_HOST/PSU_PORT so it can never
+# drift from the address the exporter itself polls.
+VISA_RESOURCE = f"TCPIP::{PSU_HOST}::{PSU_PORT}::SOCKET"

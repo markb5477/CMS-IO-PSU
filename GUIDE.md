@@ -110,10 +110,12 @@ Rows land in `sweep.csv` as they're taken, and the run shows live in Grafana
 (same instrument the exporter polls). A point that trips OVP/OCP records a `TRIP`
 row and stops. Confirm outputs are off at the end with `psuctl status`.
 
-For bench bring-up without the exporter, `--mode direct --visa-resource
-TCPIP::<ip>::9221::SOCKET` talks straight to the PSU (needs `~/cpx-venv/bin/pip
-install pyvisa-py`). This bypasses the safety layer, so use it only when you know
-the setpoints are safe.
+For bench bring-up without the exporter, `--mode direct` talks straight to the
+PSU (needs `~/cpx-venv/bin/pip install pyvisa-py`). The VISA resource defaults to
+`PSU_HOST`/`PSU_PORT` from `.env`, so it follows the same address the exporter
+polls — override with `--visa-resource TCPIP::<ip>::9221::SOCKET` only to reach a
+different instrument. Stop the exporter first; it holds the one SCPI socket. This
+bypasses the safety layer, so use it only when you know the setpoints are safe.
 
 ## 3. Write a new experiment
 

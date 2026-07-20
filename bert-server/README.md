@@ -63,8 +63,9 @@ curl -s localhost:9821/status  # JSON snapshot, incl. which file it's following
 
 ## Deploy (systemd, on the LAB PC, userspace)
 
-Mirror the PSU exporter. Copy this folder to the box (e.g. `~/bert-monitor`),
-set `.env`, sanity-check the parser, then install the per-user service (no sudo):
+Mirror the PSU exporter. `../deploy-psu-server.sh` rsyncs this folder to
+`~/bert-monitor` on cmsladdertest (it deploys both exporters in one run). Then
+set `.env`, sanity-check the parser, and install the per-user service (no sudo):
 
 ```bash
 python3 -m unittest discover -s tests    # sanity-check the parser first

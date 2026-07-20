@@ -54,7 +54,7 @@ def build_scenario():
 class SoakProcedure(Procedure):
     mode = Parameter("Mode", default="gateway")               # gateway | direct
     gateway_url = Parameter("Gateway URL", default=config.EXPORTER_URL)
-    visa_resource = Parameter("VISA resource", default="TCPIP::192.168.0.100::9221::SOCKET")
+    visa_resource = Parameter("VISA resource", default=config.VISA_RESOURCE)
 
     ovp = FloatParameter("Over-voltage protection", units="V", default=8.0,
                          minimum=0.0)  # 0 = leave as-is
@@ -172,7 +172,7 @@ def main():
     ap = argparse.ArgumentParser(description="CPX200DP dual-channel scenario/soak")
     ap.add_argument("--mode", choices=["gateway", "direct"], default="gateway")
     ap.add_argument("--gateway-url", default=config.EXPORTER_URL)
-    ap.add_argument("--visa-resource", default="TCPIP::192.168.0.100::9221::SOCKET")
+    ap.add_argument("--visa-resource", default=config.VISA_RESOURCE)
     ap.add_argument("--ovp", type=float, default=8.0)
     ap.add_argument("--dwell", type=float, default=10.0)
     ap.add_argument("--sample", type=float, default=1.0)

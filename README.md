@@ -4,13 +4,13 @@ Monitoring and control for the Aim-TTi CPX200DP power supply in 186/B-04.
 
 ```
  CPX200DP <---- cmsladdertest ----> Prometheus (OpenStack) --> Grafana
- (TCP 9221)     exporter.py :9820      scrapes /metrics
-                    ^
-                    | localhost
-                 psuctl / experiments
-
+ (TCP 9221)     exporter.py :9820   ^   scrapes /metrics
+                    ^               |
+                    | localhost     '-- psu-tunnel sidecar: Prometheus SSHes OUT
+                 psuctl / experiments    to the lab PC and scrapes the forwarded
+                                         ports (:9820 direct is firewalled)
  bertContinuous.csv --> cmsladdertest ----> (same Prometheus, job bert_status)
- (written by mm_acf)    exporter.py :9821    scrapes /metrics
+ (written by mm_acf)    exporter.py :9821    scrapes /metrics via the same tunnel
 ```
 
 Two exporters, same pattern, one monitoring stack:
@@ -37,9 +37,9 @@ Layout by where it runs:
     at the CSV" below); copy `.env.example`
   - `systemd/`, service unit + `tests/`, parser tests and a fake CSV feed
 - `monitoring/` runs on the OpenStack host: `prometheus/` (scrape + alerts) and `grafana/`
-- `deploy-psu-server.sh` rsyncs `psu-server/` to the lab PC
+- `deploy-psu-server.sh` rsyncs **both** lab-PC exporters: `psu-server/` to
+  `~/cpx-psu-monitor/` and `bert-server/` to `~/bert-monitor/`
 - `deploy-monitoring.sh` renders the scrape config, rsyncs `monitoring/` to `prometheus-tk:/root/monitoring/`
-- `bert-server/` has **no deploy script yet**; copy it by hand (see below)
 
 Python 3 stdlib only, except the experiments. Nothing to install on the lab PC.
 
@@ -120,7 +120,10 @@ systemctl --user enable --now cpx-exporter
 loginctl enable-linger $USER
 ```
 
-Open TCP 9820 to the Prometheus host if a firewall is running.
+No firewall opening is needed for 9820: the CERN firewall blocks a direct scrape
+and that is not expected to change, so Prometheus reaches both exporters by
+SSHing *out* to this PC through the `psu-tunnel` sidecar — see "Scrape path
+(reverse tunnel)" below. All the lab PC needs is inbound SSH for `xtaldaq`.
 
 Monitoring on/off (the exporter is the user service above; PSU outputs are never
 touched by start/stop):
@@ -139,11 +142,12 @@ The mm_acf continuous BER test is surfaced by a sibling exporter on :9821. It
 takes no instrument connection — it **follows the CSV the DAQ writes**. Full
 detail in `bert-server/README.md`; the deploy and CSV wiring are below.
 
-Deploy it (no deploy script yet, so rsync by hand — same shape as the PSU one):
+It ships with the PSU exporter — `./deploy-psu-server.sh` rsyncs `bert-server/`
+to `~/bert-monitor/` in the same run (both exporters live on cmsladdertest), so
+there is nothing extra to copy:
 
 ```sh
-rsync -av --delete --exclude='.env' --exclude='__pycache__' --exclude='*.pyc' \
-    bert-server/ xtaldaq@cmsladdertest.dyndns.cern.ch:bert-monitor/
+./deploy-psu-server.sh                    # both: cpx-psu-monitor/ + bert-monitor/
 ```
 
 Then on the lab PC:
@@ -264,8 +268,9 @@ cd ~/cpx-psu-monitor/experiments
     --v-start 0 --v-stop 5 --v-step 0.5 --dwell 2 --ovp 6 --out sweep.csv
 ```
 
-For bench bring-up, `--mode direct --visa-resource TCPIP::<ip>::9221::SOCKET`
-talks straight to the PSU (needs `pip install pyvisa-py`). Subclass `Procedure`
+For bench bring-up, `--mode direct` talks straight to the PSU, at the
+`PSU_HOST`/`PSU_PORT` from `.env` (needs `pip install pyvisa-py`; stop the
+exporter first, it holds the one SCPI socket). Subclass `Procedure`
 to write your own, see `ramp.py`. GUIDE.md walks through both a manual and an
 automated experiment.
 
@@ -303,6 +308,21 @@ TSDB, so every archive holds all series — PSU (`cpx_*`) and BER (`bert_*`) ali
 
 `render.sh` (run by the deploy) writes `prometheus/prometheus.yml` from
 `prometheus.yml.tmpl`. Edit the template, not the output.
+
+**There are two `.env` files and they do different jobs.** `.env` is excluded
+from the deploy rsync, so each machine keeps its own:
+
+| where | what it feeds | when it is read |
+|---|---|---|
+| **your laptop**, `monitoring/.env` | `PSU_EXPORTER_TARGET`, `BERT_EXPORTER_TARGET`, scrape intervals, `INSTRUMENT`/`LOCATION` labels | at deploy time, by `render.sh` — baked into `prometheus.yml` |
+| **the box**, `/root/monitoring/.env` | `PROMETHEUS_PORT`, `GRAFANA_PORT`, `GRAFANA_ADMIN_PASSWORD` | at `./on.sh` time, by docker-compose |
+
+Consequence worth knowing: editing a scrape target in the box's `.env` changes
+nothing on its own — `prometheus.yml` was already rendered on the laptop. Either
+re-run `./deploy-monitoring.sh` from the laptop (normal path), or run
+`./render.sh && ./on.sh` on the box to re-render from its own `.env`. The
+scrape keys are present in both copies because they share one `.env.example`;
+on the box they are simply inert until you run `render.sh` there.
 
 Browserless view: `dash.py` renders a live terminal dashboard from the
 Prometheus API (stdlib), run on the box:

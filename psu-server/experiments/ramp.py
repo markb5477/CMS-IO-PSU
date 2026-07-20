@@ -39,7 +39,7 @@ def make_instrument(mode, gateway_url, visa_resource):
 class VoltageRampProcedure(Procedure):
     mode = Parameter("Mode", default="gateway")               # gateway | direct
     gateway_url = Parameter("Gateway URL", default=config.EXPORTER_URL)
-    visa_resource = Parameter("VISA resource", default="TCPIP::192.168.0.100::9221::SOCKET")
+    visa_resource = Parameter("VISA resource", default=config.VISA_RESOURCE)
 
     channel = IntegerParameter("Channel", default=1, minimum=1, maximum=2)
     current_limit = FloatParameter("Current limit", units="A", default=0.5)
@@ -133,7 +133,7 @@ def main():
     ap = argparse.ArgumentParser(description="CPX200DP voltage ramp")
     ap.add_argument("--mode", choices=["gateway", "direct"], default="gateway")
     ap.add_argument("--gateway-url", default=config.EXPORTER_URL)
-    ap.add_argument("--visa-resource", default="TCPIP::192.168.0.100::9221::SOCKET")
+    ap.add_argument("--visa-resource", default=config.VISA_RESOURCE)
     ap.add_argument("--channel", type=int, default=1, choices=[1, 2])
     ap.add_argument("--current-limit", type=float, default=0.5)
     ap.add_argument("--ovp", type=float, default=0.0)
