@@ -9,6 +9,7 @@ import math
 import os
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -264,3 +265,254 @@ class RenderTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RunTotalsTest(unittest.TestCase):
+    """Each CSV row is one ~1 s window and testedBits does NOT accumulate in the
+    file, so the run exposure only exists if the exporter sums it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.tmp.name, "bertContinuous.csv")
+        write(self.path, HEADER)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def source(self):
+        return exporter.CsvSource(explicit_path=self.path)
+
+    def test_totals_sum_windows_per_link(self):
+        write(self.path, "2026-07-20T08:31:00Z,0,22,0,300000000,0\n")
+        write(self.path, "2026-07-20T08:31:01Z,0,22,0,320000000,2\n")
+        write(self.path, "2026-07-20T08:31:02Z,0,23,0,100000000,0\n")
+        src = self.source()
+        src.poll()
+        snap = src.get_snapshot()
+
+        t = snap["totals"][(0, 22, 0)]
+        self.assertEqual(t["tested"], 620000000)
+        self.assertEqual(t["errors"], 2)
+        self.assertEqual(t["samples"], 2)
+        # the latest sample still reports only its own window
+        self.assertEqual(snap["series"][(0, 22, 0)]["tested_bits"], 320000000)
+        self.assertEqual(snap["run_tested_bits"], 720000000)
+        self.assertEqual(snap["run_errors"], 2)
+
+    def test_totals_accumulate_across_polls(self):
+        write(self.path, "2026-07-20T08:31:00Z,0,22,0,300000000,0\n")
+        src = self.source()
+        src.poll()
+        write(self.path, "2026-07-20T08:31:01Z,0,22,0,300000000,0\n")
+        src.poll()
+        self.assertEqual(src.get_snapshot()["run_tested_bits"], 600000000)
+
+    def test_invalid_rows_excluded_from_totals(self):
+        # a sentinel errorCount must not add 4 billion errors to the run
+        write(self.path, "2026-07-20T08:31:00Z,0,22,0,300000000,0\n")
+        write(self.path, "2026-07-20T08:31:01Z,0,22,0,300000000,4294967295\n")
+        src = self.source()
+        src.poll()
+        snap = src.get_snapshot()
+        self.assertEqual(snap["run_errors"], 0)
+        self.assertEqual(snap["run_tested_bits"], 300000000)
+        self.assertEqual(snap["totals"][(0, 22, 0)]["samples"], 1)
+
+    def test_new_run_dir_resets_totals(self):
+        # the real scenario: the DAQ starts Run_43 in a new directory and the
+        # glob follows it. The limit must restart from that run's exposure only.
+        root = self.tmp.name
+        r42 = os.path.join(root, "Run_42", "bertContinuous.csv")
+        r43 = os.path.join(root, "Run_43", "bertContinuous.csv")
+        os.makedirs(os.path.dirname(r42))
+        os.makedirs(os.path.dirname(r43))
+        write(r42, HEADER)
+        write(r42, "2026-07-20T08:31:00Z,0,22,0,300000000,0\n")
+        src = exporter.CsvSource(results_root=root, glob_pattern="**/bertContinuous.csv")
+        src.poll()
+        self.assertEqual(src.get_snapshot()["run_tested_bits"], 300000000)
+
+        write(r43, HEADER)
+        write(r43, "2026-07-20T09:00:00Z,0,22,0,100000000,0\n")
+        os.utime(r43, (time.time() + 10, time.time() + 10))   # newest by mtime
+        src.poll()
+        snap = src.get_snapshot()
+        self.assertTrue(snap["path"].endswith("Run_43/bertContinuous.csv"))
+        self.assertEqual(snap["run_tested_bits"], 100000000,
+                         "a new run must not inherit the previous run's exposure")
+
+    def test_limit_falls_as_exposure_grows(self):
+        write(self.path, "2026-07-20T08:31:00Z,0,22,0,1000000000,0\n")
+        src = self.source()
+        src.poll()
+        first = src.get_snapshot()["run_ber_limit_95"]
+        write(self.path, "2026-07-20T08:31:01Z,0,22,0,1000000000,0\n")
+        src.poll()
+        second = src.get_snapshot()["run_ber_limit_95"]
+        self.assertAlmostEqual(first, 2.995732273553991 / 1e9)
+        self.assertLess(second, first)
+        self.assertAlmostEqual(second, 2.995732273553991 / 2e9)
+
+    def test_limit_is_nan_before_any_exposure(self):
+        src = self.source()
+        src.poll()
+        self.assertTrue(math.isnan(src.get_snapshot()["run_ber_limit_95"]))
+
+    def test_totals_render_and_status_json(self):
+        write(self.path, "2026-07-20T08:31:00Z,0,22,0,300000000,0\n")
+        src = self.source()
+        src.poll()
+        text = exporter.render_metrics(src)
+        self.assertIn('bert_tested_bits_total{board="0",hybrid="22",line="0"} 300000000', text)
+        self.assertIn("bert_run_tested_bits_total 300000000", text)
+        self.assertIn("bert_run_ber_upper_limit_95", text)
+        # /status must stay strict JSON with the totals flattened in
+        doc = json.loads(json.dumps(exporter.status_json(src.get_snapshot())))
+        rec = doc["series"][0]
+        self.assertEqual(rec["total_tested"], 300000000)
+        self.assertEqual(rec["total_errors"], 0)
+
+
+class FecColumnTest(unittest.TestCase):
+    """fecUplink/fecDownlink, added to the CSV at Run_43. Six-column rows from
+    earlier runs must keep working, and "column absent" must not read as zero."""
+
+    FEC_HEADER = ("timestamp,board,hybrid,line,testedBits,errorCount,"
+                  "fecUplink,fecDownlink\n")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.tmp.name, "bertContinuous.csv")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def source(self):
+        return exporter.CsvSource(explicit_path=self.path)
+
+    def test_reads_both_fec_columns(self):
+        write(self.path, self.FEC_HEADER)
+        write(self.path, "2026-07-21T12:49:19Z,0,22,0,325996128,0,3,7\n")
+        src = self.source()
+        src.poll()
+        rec = src.get_snapshot()["series"][(0, 22, 0)]
+        self.assertEqual(rec["fec_uplink"], 3)
+        self.assertEqual(rec["fec_downlink"], 7)
+
+    def test_zero_fec_is_a_value_not_a_gap(self):
+        # the whole point of the columns: 0 is the good result and must render.
+        write(self.path, "2026-07-21T12:49:19Z,0,22,0,325996128,0,0,0\n")
+        src = self.source()
+        src.poll()
+        text = exporter.render_metrics(src)
+        self.assertIn('bert_fec_uplink{board="0",hybrid="22",line="0"} 0', text)
+        self.assertIn('bert_fec_downlink{board="0",hybrid="22",line="0"} 0', text)
+        self.assertIn("bert_run_fec_uplink_max 0", text)
+
+    def test_six_column_rows_still_parse(self):
+        write(self.path, HEADER)
+        write(self.path, "2026-07-20T08:31:00Z,0,0,3,10000000000,12\n")
+        src = self.source()
+        src.poll()
+        snap = src.get_snapshot()
+        self.assertEqual(snap["rows"], 1)
+        self.assertEqual(snap["parse_errors"], 0)
+        self.assertAlmostEqual(snap["series"][(0, 0, 3)]["ber"], 12 / 1e10)
+        self.assertIsNone(snap["series"][(0, 0, 3)]["fec_uplink"])
+
+    def test_absent_column_emits_no_series_and_nan_run_max(self):
+        # a pre-Run_43 file must not claim "0 FEC errors" - it has no idea.
+        write(self.path, "2026-07-20T08:31:00Z,0,0,3,10000000000,0\n")
+        src = self.source()
+        src.poll()
+        snap = src.get_snapshot()
+        self.assertTrue(math.isnan(snap["run_fec_uplink_max"]))
+        text = exporter.render_metrics(src)
+        self.assertIn("bert_run_fec_uplink_max NaN", text)
+        self.assertNotIn('bert_fec_uplink{', text)
+
+    def test_run_max_is_worst_link_not_a_sum(self):
+        # the counter is per optical group, so the DAQ repeats it on every hybrid
+        # row sharing that group; summing would multiply-count it.
+        write(self.path, self.FEC_HEADER)
+        write(self.path, "2026-07-21T12:49:19Z,0,22,0,325996128,0,4,0\n")
+        write(self.path, "2026-07-21T12:49:19Z,0,23,0,325996128,0,4,0\n")
+        src = self.source()
+        src.poll()
+        self.assertEqual(src.get_snapshot()["run_fec_uplink_max"], 4)
+
+    def test_run_max_keeps_the_peak_after_it_drops(self):
+        write(self.path, self.FEC_HEADER)
+        write(self.path, "2026-07-21T12:49:19Z,0,22,0,325996128,0,9,0\n")
+        src = self.source()
+        src.poll()
+        write(self.path, "2026-07-21T12:49:20Z,0,22,0,325996128,0,1,0\n")
+        src.poll()
+        snap = src.get_snapshot()
+        self.assertEqual(snap["series"][(0, 22, 0)]["fec_uplink"], 1)   # latest
+        self.assertEqual(snap["fec"][(0, 22, 0)]["uplink_max"], 9)      # run peak
+
+    def test_fec_sentinel_becomes_nan_without_voiding_the_ber(self):
+        write(self.path, self.FEC_HEADER)
+        write(self.path, "2026-07-21T12:49:19Z,0,22,0,325996128,0,4294967295,0\n")
+        src = self.source()
+        src.poll()
+        rec = src.get_snapshot()["series"][(0, 22, 0)]
+        self.assertTrue(math.isnan(rec["fec_uplink"]))
+        self.assertTrue(rec["valid"])          # the BER sample is untouched
+        self.assertEqual(rec["ber"], 0.0)
+
+    def test_malformed_fec_does_not_drop_the_ber_row(self):
+        write(self.path, self.FEC_HEADER)
+        write(self.path, "2026-07-21T12:49:19Z,0,22,0,325996128,0,oops,-1\n")
+        src = self.source()
+        src.poll()
+        snap = src.get_snapshot()
+        self.assertEqual(snap["parse_errors"], 0)
+        rec = snap["series"][(0, 22, 0)]
+        self.assertEqual(rec["ber"], 0.0)
+        self.assertIsNone(rec["fec_uplink"])
+        self.assertIsNone(rec["fec_downlink"])
+
+    def test_new_run_resets_fec_peak(self):
+        root = self.tmp.name
+        r42 = os.path.join(root, "Run_42", "bertContinuous.csv")
+        r43 = os.path.join(root, "Run_43", "bertContinuous.csv")
+        for path in (r42, r43):
+            os.makedirs(os.path.dirname(path))
+        write(r42, self.FEC_HEADER + "2026-07-21T12:49:19Z,0,22,0,325996128,0,9,0\n")
+        src = exporter.CsvSource(results_root=root)
+        src.poll()
+        self.assertEqual(src.get_snapshot()["run_fec_uplink_max"], 9)
+
+        write(r43, self.FEC_HEADER + "2026-07-21T13:00:00Z,0,22,0,325996128,0,1,0\n")
+        os.utime(r43, (time.time() + 10, time.time() + 10))   # newest by mtime
+        src.poll()
+        self.assertEqual(src.get_snapshot()["run_fec_uplink_max"], 1)
+
+    def test_fec_in_status_json(self):
+        write(self.path, self.FEC_HEADER)
+        write(self.path, "2026-07-21T12:49:19Z,0,22,0,325996128,0,2,5\n")
+        src = self.source()
+        src.poll()
+        doc = json.loads(json.dumps(exporter.status_json(src.get_snapshot())))
+        rec = doc["series"][0]
+        self.assertEqual(rec["fec_uplink"], 2)
+        self.assertEqual(rec["fec_downlink"], 5)
+        self.assertEqual(rec["fec_uplink_max"], 2)
+        self.assertEqual(doc["run_fec_downlink_max"], 5)
+
+
+class PoissonLimitTest(unittest.TestCase):
+    def test_zero_errors_is_exact(self):
+        self.assertAlmostEqual(exporter.poisson_upper_limit_95(0), 2.995732273553991)
+
+    def test_approximation_tracks_exact_for_small_k(self):
+        # exact 0.5*chi2_0.95(2k+2) for k = 1..5
+        exact = {1: 4.7439, 2: 6.2958, 3: 7.7537, 4: 9.1535, 5: 10.5130}
+        for k, want in exact.items():
+            got = exporter.poisson_upper_limit_95(k)
+            self.assertLess(abs(got - want) / want, 0.01, f"k={k}: {got} vs {want}")
+
+    def test_limit_undefined_without_exposure(self):
+        self.assertTrue(math.isnan(exporter.ber_limit(0, 0)))

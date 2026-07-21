@@ -197,7 +197,7 @@ With the stack up on the host (`./on.sh` in `~/monitoring`), from **your
 laptop** open a tunnel and leave it running:
 
 ```sh
-ssh -N -L 3000:localhost:3000 root@cmx-trk-prometheus-instance
+ssh -N -L 3000:localhost:3000 prometheus-tk
 ```
 
 `-L 3000:localhost:3000` forwards your `localhost:3000` to Grafana on the host;
@@ -211,7 +211,7 @@ http://localhost:3000      # log in admin / <GRAFANA_ADMIN_PASSWORD from .env>
 For the raw Prometheus UI (PromQL, targets), add its port:
 
 ```sh
-ssh -N -L 3000:localhost:3000 -L 9090:localhost:9090 root@cmx-trk-prometheus-instance
+ssh -N -L 3000:localhost:3000 -L 9090:localhost:9090 prometheus-tk
 # then http://localhost:9090
 ```
 
@@ -221,12 +221,16 @@ For a shortcut, put it in `~/.ssh/config` on the laptop:
 Host grafana
     HostName cmx-trk-prometheus-instance
     User root
+    ProxyJump mbrandt@lxtunnel.cern.ch
     LocalForward 3000 localhost:3000
     LocalForward 9090 localhost:9090
     RequestTTY no
 ```
 
-Then `ssh -N grafana` and browse `http://localhost:3000`.
+Then `ssh -N grafana` and browse `http://localhost:3000`. The `ProxyJump` is
+required: `cmx-trk-prometheus-instance` is a CERN-internal name that does not
+resolve from outside, so a direct `ssh root@cmx-trk-prometheus-instance` fails
+with `Name or service not known`.
 
 If the page is empty and SSH keeps printing `channel N: open failed: connect
 failed: Connection refused`, the tunnel is fine but the service is down, the
@@ -272,6 +276,12 @@ What you should see, and what is normal:
 - **Gaps (NaN) on a link** — the DAQ logged a hardware read-failure sentinel for
   that sample. Deliberately shown as a gap rather than a bogus 4-billion spike;
   `bert_invalid_samples_total` counts them.
+- **FEC uplink/downlink at 0.** From Run_43 the CSV also carries the lpGBT FEC
+  correction counts. These matter because FEC repairs bit flips silently — the
+  PRBS error count stays 0 *because* FEC fixed the frame — so a climbing FEC
+  count is degradation nothing else on the dashboard reveals. The two FEC tiles
+  go amber on any correction at all; that is a "look at it", not a spec limit.
+  Empty tiles mean the run predates the columns, not that FEC is clean.
 
 To rehearse any of this without the DAQ, feed the exporter a fake CSV:
 

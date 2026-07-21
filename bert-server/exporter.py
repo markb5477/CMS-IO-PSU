@@ -3,8 +3,11 @@
 
 The DAQ's OTBitErrorRateTestContinuous appends CSV rows to bertContinuous.csv:
 
-    timestamp,board,hybrid,line,testedBits,errorCount
-    2026-07-20T08:31:00Z,0,0,3,10000000000,12
+    timestamp,board,hybrid,line,testedBits,errorCount,fecUplink,fecDownlink
+    2026-07-20T08:31:00Z,0,0,3,10000000000,12,0,0
+
+The two fec* columns were added mid-campaign (Run_43 onwards); rows from earlier
+runs have six columns and are still read, just without FEC metrics.
 
 Prometheus can't read a file, only HTTP. This exporter is the adapter: it follows
 the newest bertContinuous.csv (or a pinned path), keeps the *latest* row per
@@ -60,6 +63,63 @@ def parse_timestamp(text):
     return dt.timestamp()
 
 
+# One-sided 95% CL upper limit on a Poisson mean given k observed events.
+# k == 0 is the case that matters here (an error-free run) and is exact:
+# -ln(0.05) = 2.9957. For k > 0 the exact limit is 0.5*chi2_{0.95}(2k+2); the
+# Wilson-Hilferty cube-root form below approximates that to well under 1%, which
+# is far finer than anything a BER plot resolves, and keeps this stdlib-only.
+_Z95 = 1.6448536269514722
+
+
+def poisson_upper_limit_95(k):
+    if k <= 0:
+        return 2.995732273553991
+    nu = 2.0 * k + 2.0
+    return 0.5 * nu * (1.0 - 2.0 / (9.0 * nu) + _Z95 * math.sqrt(2.0 / (9.0 * nu))) ** 3
+
+
+def optional_count(parts, index):
+    """Column `index` as a non-negative int, or None if it isn't usable.
+
+    The fecUplink/fecDownlink columns only exist from Run_43 on, so a short row
+    is normal history, not corruption - and "column absent" has to stay distinct
+    from "counter read 0", which is a real and very good result. A malformed
+    value degrades to None rather than dropping the row: the BER measurement in
+    columns 0-5 is the primary result and must survive a bad FEC read.
+    """
+    if len(parts) <= index:
+        return None
+    text = parts[index].strip()
+    if not text:
+        return None
+    try:
+        value = int(text)
+    except ValueError:
+        return None
+    return value if value >= 0 else None
+
+
+def max_or_nan(values):
+    """Largest of the finite values, or NaN if there are none.
+
+    NaN, not 0: with no FEC columns in the file "zero FEC errors" would be a
+    claim the data doesn't support, and NaN renders as an empty panel instead.
+    """
+    finite = [v for v in values if isinstance(v, (int, float)) and math.isfinite(v)]
+    return max(finite) if finite else float("nan")
+
+
+def ber_limit(tested, errors):
+    """95% CL upper limit on the bit error rate for `errors` seen in `tested` bits.
+
+    Returns NaN when nothing has been tested yet - a limit from zero bits is not
+    "0", it is undefined, and NaN renders as a gap rather than a false claim.
+    """
+    if tested <= 0:
+        return float("nan")
+    return poisson_upper_limit_95(errors) / tested
+
+
 class CsvSource:
     """Follows one bertContinuous.csv and holds the latest sample per link.
 
@@ -81,6 +141,21 @@ class CsvSource:
         # per (board, hybrid, line) -> {"error_count", "tested_bits", "ber", "ts", "valid"}
         # Values are NaN when the sample was a sentinel / undefined (see _parse_line).
         self.series = {}
+        # per (board, hybrid, line) -> {"tested", "errors", "samples"}, summed over
+        # every VALID row of the current file. Each row is a ~1 s measurement window
+        # (testedBits does not accumulate in the CSV), so the run total is only
+        # obtainable here: Prometheus samples the gauge every few seconds and would
+        # multiply-count or miss windows. This is what makes a meaningful BER limit
+        # possible - see run_totals().
+        self.totals = {}
+        # per (board, hybrid, line) -> {"uplink_max", "downlink_max"}: the largest
+        # lpGBT FEC correction count seen this run. Kept out of self.totals for two
+        # reasons: the FEC read comes off the lpGBT rather than the BER FPGA, so it
+        # is valid or not independently of the errorCount/testedBits sentinels; and
+        # it must not be summed - the counter is per optical group, so the DAQ
+        # writes the same value on every hybrid row sharing that group and a sum
+        # would multiply-count it.
+        self.fec = {}
         self.path = None          # file currently being followed
         self.inode = None
         self.offset = 0           # bytes consumed so far in self.path
@@ -106,6 +181,14 @@ class CsvSource:
             return None
         return max(matches, key=os.path.getmtime)
 
+    def _fec_value(self, value):
+        """None (column absent) stays None; an all-ones read failure becomes NaN."""
+        if value is None:
+            return None
+        if self.error_sentinel is not None and value == self.error_sentinel:
+            return float("nan")
+        return value
+
     def _parse_line(self, line):
         # Never let one malformed row abort a poll: any unexpected parse issue is
         # counted and skipped, not raised.
@@ -126,6 +209,8 @@ class CsvSource:
             if min(board, hybrid, line_no, tested, errors) < 0:
                 self.parse_errors += 1
                 return
+            fec_up = optional_count(parts, 6)
+            fec_down = optional_count(parts, 7)
         except (ValueError, IndexError):
             self.parse_errors += 1
             return
@@ -140,13 +225,35 @@ class CsvSource:
         if not valid:
             self.invalid_samples += 1
 
+        # The FEC counters carry the same all-ones read-failure sentinel, but judged
+        # on their own: a row whose BER is unusable can still hold a good FEC read.
+        fec_up = self._fec_value(fec_up)
+        fec_down = self._fec_value(fec_down)
+
         self.series[(board, hybrid, line_no)] = {
             "error_count": nan if error_bad else errors,
             "tested_bits": nan if tested_bad else tested,
             "ber": (errors / tested) if valid else nan,
             "ts": ts,          # the timestamp is still trustworthy: the DAQ did write a row
             "valid": valid,
+            "fec_uplink": fec_up,       # None when the column isn't in this run's CSV
+            "fec_downlink": fec_down,
         }
+        if fec_up is not None or fec_down is not None:
+            run_fec = self.fec.setdefault((board, hybrid, line_no),
+                                          {"uplink_max": float("nan"),
+                                           "downlink_max": float("nan")})
+            run_fec["uplink_max"] = max_or_nan([run_fec["uplink_max"], fec_up])
+            run_fec["downlink_max"] = max_or_nan([run_fec["downlink_max"], fec_down])
+        # Accumulate only measurements we trust; a sentinel row would otherwise add
+        # a bogus 4-billion errors (or a nonsense window) to the run total, and the
+        # totals are exactly what the BER limit is computed from.
+        if valid:
+            acc = self.totals.setdefault((board, hybrid, line_no),
+                                         {"tested": 0, "errors": 0, "samples": 0})
+            acc["tested"] += tested
+            acc["errors"] += errors
+            acc["samples"] += 1
         self.rows += 1
 
     def poll(self):
@@ -167,6 +274,10 @@ class CsvSource:
                     self.inode = st.st_ino
                     self.offset = 0
                     self.series = {}
+                    # A new Run_<N> is a new measurement: its BER limit must start
+                    # over, not inherit the previous run's accumulated bits.
+                    self.totals = {}
+                    self.fec = {}
                     self.rows = 0
                 offset = self.offset
 
@@ -205,8 +316,23 @@ class CsvSource:
     def get_snapshot(self):
         with self.state_lock:
             series = {k: dict(v) for k, v in self.series.items()}
+            totals = {k: dict(v) for k, v in self.totals.items()}
+            fec = {k: dict(v) for k, v in self.fec.items()}
             last_ts = max((v["ts"] for v in series.values()), default=0.0)
+            run_tested = sum(v["tested"] for v in totals.values())
+            run_errors = sum(v["errors"] for v in totals.values())
+            for k, v in totals.items():
+                v["ber_limit_95"] = ber_limit(v["tested"], v["errors"])
             return {
+                "totals": totals,
+                "fec": fec,
+                "run_tested_bits": run_tested,
+                "run_errors": run_errors,
+                "run_ber_limit_95": ber_limit(run_tested, run_errors),
+                # worst link, not a sum: the same optical group's counter is
+                # repeated across the hybrid rows that share it (see self.fec).
+                "run_fec_uplink_max": max_or_nan(v["uplink_max"] for v in fec.values()),
+                "run_fec_downlink_max": max_or_nan(v["downlink_max"] for v in fec.values()),
                 "up": self.up,
                 "file_present": self.file_present,
                 "path": self.path,
@@ -269,9 +395,18 @@ def status_json(snap):
     """A JSON-serialisable view of a snapshot: the series dict is keyed by a
     (board,hybrid,line) tuple, which json.dumps can't encode, so flatten it to a
     sorted list of per-link records; NaN/Inf become null."""
-    out = {k: _json_scalar(v) for k, v in snap.items() if k != "series"}
+    skip = ("series", "totals", "fec")
+    out = {k: _json_scalar(v) for k, v in snap.items() if k not in skip}
+    totals = snap.get("totals", {})
+    fec = snap.get("fec", {})
     out["series"] = [
-        {"board": b, "hybrid": h, "line": ln, **{k: _json_scalar(v) for k, v in rec.items()}}
+        {"board": b, "hybrid": h, "line": ln,
+         **{k: _json_scalar(v) for k, v in rec.items()},
+         # run-to-date figures for this link, flattened alongside its latest sample
+         **{"total_" + k: _json_scalar(v)
+            for k, v in sorted(totals.get((b, h, ln), {}).items())},
+         **{"fec_" + k: _json_scalar(v)
+            for k, v in sorted(fec.get((b, h, ln), {}).items())}}
         for (b, h, ln), rec in sorted(snap["series"].items())
     ]
     return out
@@ -318,6 +453,64 @@ def render_metrics(source):
         metric("bert_info", "The log file currently being followed", "gauge",
                [(f'{{path="{_escape(snap["path"])}"}}', 1)])
 
+    # --- run-to-date totals ------------------------------------------------
+    # Each CSV row is a ~1 s window, so these are the only place the accumulated
+    # exposure exists. bert_run_ber_upper_limit_95 is the headline result of the
+    # test: "no errors in N bits" is a limit, not a BER of zero.
+    metric("bert_run_tested_bits_total", "Bits tested this run, summed over all links and windows",
+           "counter", [("", snap["run_tested_bits"])])
+    metric("bert_run_errors_total", "Bit errors this run, summed over all links and windows",
+           "counter", [("", snap["run_errors"])])
+    metric("bert_run_ber_upper_limit_95",
+           "95% CL upper limit on the bit error rate over the whole run "
+           "(NaN until any bits are tested)", "gauge",
+           [("", _fmt(snap["run_ber_limit_95"]))])
+
+    # --- lpGBT FEC corrections ---------------------------------------------
+    # The link's other failure mode: FEC silently repairs bit flips, so a rising
+    # FEC count is degradation the PRBS error count cannot see (it stays at 0
+    # precisely because FEC fixed the frame). Reported as the worst link rather
+    # than a sum - one optical group's counter appears on several hybrid rows.
+    metric("bert_run_fec_uplink_max",
+           "Highest uplink FEC correction count on any link this run "
+           "(NaN if the CSV has no fecUplink column)", "gauge",
+           [("", _fmt(snap["run_fec_uplink_max"]))])
+    metric("bert_run_fec_downlink_max",
+           "Highest downlink FEC correction count on any link this run "
+           "(NaN if the CSV has no fecDownlink column)", "gauge",
+           [("", _fmt(snap["run_fec_downlink_max"]))])
+
+    fec = sorted(snap["fec"].items())
+    if fec:
+        def per_link_fec(name, help_text, key):
+            metric(name, help_text, "gauge",
+                   [(f'{{board="{b}",hybrid="{h}",line="{ln}"}}', _fmt(v[key]))
+                    for (b, h, ln), v in fec])
+
+        per_link_fec("bert_fec_uplink_max",
+                     "Highest uplink FEC correction count seen on this link this run",
+                     "uplink_max")
+        per_link_fec("bert_fec_downlink_max",
+                     "Highest downlink FEC correction count seen on this link this run",
+                     "downlink_max")
+
+    totals = sorted(snap["totals"].items())
+    if totals:
+        def per_link_total(name, help_text, key, mtype, fmt=_fmt):
+            metric(name, help_text, mtype,
+                   [(f'{{board="{b}",hybrid="{h}",line="{ln}"}}', fmt(v[key]))
+                    for (b, h, ln), v in totals])
+
+        per_link_total("bert_tested_bits_total", "Bits tested by this link this run",
+                       "tested", "counter")
+        per_link_total("bert_errors_total", "Bit errors seen by this link this run",
+                       "errors", "counter")
+        per_link_total("bert_samples_total", "Valid measurement windows recorded for this link this run",
+                       "samples", "counter")
+        per_link_total("bert_ber_upper_limit_95",
+                       "95% CL upper limit on this link's bit error rate over the run",
+                       "ber_limit_95", "gauge")
+
     series = sorted(snap["series"].items())
     if series:
         def per_link(name, help_text, key, fmt=_fmt):
@@ -337,6 +530,21 @@ def render_metrics(source):
         per_link("bert_sample_timestamp_seconds",
                  "Timestamp of this link's latest sample (unix seconds)",
                  "ts", lambda x: f"{x:.0f}")
+
+        # Emitted only for links that actually reported the column, so a pre-Run_43
+        # CSV yields no series at all rather than a flat line of fabricated zeros.
+        def per_link_optional(name, help_text, key):
+            samples = [(f'{{board="{b}",hybrid="{h}",line="{ln}"}}', _fmt(v[key]))
+                       for (b, h, ln), v in series if v.get(key) is not None]
+            if samples:
+                metric(name, help_text, "gauge", samples)
+
+        per_link_optional("bert_fec_uplink",
+                          "fecUplink of the latest sample (NaN if the counter read failed)",
+                          "fec_uplink")
+        per_link_optional("bert_fec_downlink",
+                          "fecDownlink of the latest sample (NaN if the counter read failed)",
+                          "fec_downlink")
     return "\n".join(out) + "\n"
 
 

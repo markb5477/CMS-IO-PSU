@@ -334,11 +334,11 @@
               },
               {
                 "color": "orange",
-                "value": 1E-9
+                "value": 1e-09
               },
               {
                 "color": "red",
-                "value": 0.000001
+                "value": 1e-06
               }
             ]
           }
@@ -356,12 +356,368 @@
       }
     },
     {
-      "type": "timeseries",
-      "title": "Bit error rate per link (log scale)",
-      "id": 7,
+      "id": 11,
+      "type": "stat",
+      "title": "Bits tested (this run)",
+      "description": "Sum of every measurement window in the current Run_<N>, all links. Resets when the DAQ starts a new run.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cpx-prometheus"
+      },
       "gridPos": {
         "x": 0,
         "y": 4,
+        "w": 8,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cpx-prometheus"
+          },
+          "expr": "bert_run_tested_bits_total",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "BER upper limit, 95% CL (this run)",
+      "description": "The headline result. With zero errors observed the BER is not 0, it is 'below this' - 2.9957/bits tested. Falls as the run accumulates exposure.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cpx-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 4,
+        "w": 8,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "sci",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cpx-prometheus"
+          },
+          "expr": "bert_run_ber_upper_limit_95",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Errors (this run)",
+      "description": "Total bit errors across all links this run. Sentinel/invalid rows excluded.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cpx-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 4,
+        "w": 8,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cpx-prometheus"
+          },
+          "expr": "bert_run_errors_total",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "FEC uplink, worst link (this run)",
+      "description": "Uplink Worst link this run, not a sum - the counter is per optical group so the DAQ repeats it on every hybrid sharing it. Amber means any correction at all happened, which is a look-at-me, not a spec limit. Empty = the CSV has no FEC column (runs before Run_43).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cpx-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cpx-prometheus"
+          },
+          "expr": "bert_run_fec_uplink_max",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "FEC downlink, worst link (this run)",
+      "description": "Downlink Worst link this run, not a sum - the counter is per optical group so the DAQ repeats it on every hybrid sharing it. Amber means any correction at all happened, which is a look-at-me, not a spec limit. Empty = the CSV has no FEC column (runs before Run_43).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cpx-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cpx-prometheus"
+          },
+          "expr": "bert_run_fec_downlink_max",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "BER upper limit per link, 95% CL (falls with exposure)",
+      "description": "Per-link 95% CL limit over the run. A healthy link shows a smoothly falling curve; a link that takes an error steps up.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cpx-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "sci",
+          "custom": {
+            "scaleDistribution": {
+              "type": "log",
+              "log": 10
+            },
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cpx-prometheus"
+          },
+          "expr": "bert_ber_upper_limit_95",
+          "legendFormat": "b{{board}}/h{{hybrid}}/L{{line}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Bit error rate per 1 s window (0 = no errors that window)",
+      "id": 7,
+      "gridPos": {
+        "x": 0,
+        "y": 21,
         "w": 24,
         "h": 9
       },
@@ -384,12 +740,14 @@
             "showPoints": "auto",
             "lineInterpolation": "stepAfter",
             "scaleDistribution": {
-              "type": "log",
-              "log": 10
+              "type": "symlog",
+              "log": 10,
+              "linearThreshold": 1e-12
             }
           },
           "mappings": [],
-          "decimals": 2
+          "decimals": 2,
+          "min": 0
         },
         "overrides": []
       },
@@ -401,6 +759,72 @@
         "tooltip": {
           "mode": "multi"
         }
+      },
+      "description": "Per-window BER. Resolution floor is 1/testedBits ~ 3e-9, so 0 here only means 'no error in this second'. For the real sensitivity see the 95% CL limit panels above."
+    },
+    {
+      "type": "timeseries",
+      "title": "lpGBT FEC corrections per link",
+      "description": "Forward error correction repairs bit flips silently, so a climbing FEC count is link degradation the PRBS error count cannot see - it stays at 0 precisely because FEC fixed the frame. Solid = uplink, dashed = downlink.",
+      "id": 17,
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cpx-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "bert_fec_uplink",
+          "legendFormat": "up b{{board}}/h{{hybrid}}/L{{line}}",
+          "refId": "A"
+        },
+        {
+          "expr": "bert_fec_downlink",
+          "legendFormat": "down b{{board}}/h{{hybrid}}/L{{line}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "lineInterpolation": "stepAfter"
+          },
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "down .*"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       }
     },
     {
@@ -409,7 +833,7 @@
       "id": 8,
       "gridPos": {
         "x": 0,
-        "y": 13,
+        "y": 38,
         "w": 12,
         "h": 8
       },
@@ -449,7 +873,7 @@
       "id": 9,
       "gridPos": {
         "x": 12,
-        "y": 13,
+        "y": 38,
         "w": 12,
         "h": 8
       },
@@ -489,7 +913,7 @@
       "id": 10,
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 46,
         "w": 24,
         "h": 9
       },
@@ -515,13 +939,21 @@
           "refId": "C",
           "instant": true,
           "format": "table"
+        },
+        {
+          "expr": "bert_fec_uplink",
+          "refId": "D",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "bert_fec_downlink",
+          "refId": "E",
+          "instant": true,
+          "format": "table"
         }
       ],
       "transformations": [
-        {
-          "id": "merge",
-          "options": {}
-        },
         {
           "id": "organize",
           "options": {
@@ -533,18 +965,34 @@
               "location": true,
               "instance": true
             },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
             "indexByName": {
               "board": 0,
               "hybrid": 1,
               "line": 2,
               "Value #A": 3,
               "Value #B": 4,
-              "Value #C": 5
+              "Value #C": 5,
+              "Value #D": 6,
+              "Value #E": 7
             },
             "renameByName": {
               "Value #A": "BER",
               "Value #B": "errors",
-              "Value #C": "tested bits"
+              "Value #C": "tested bits",
+              "Value #D": "FEC up",
+              "Value #E": "FEC down"
             }
           }
         }
@@ -583,11 +1031,11 @@
                     },
                     {
                       "color": "orange",
-                      "value": 1E-9
+                      "value": 1e-09
                     },
                     {
                       "color": "red",
-                      "value": 0.000001
+                      "value": 1e-06
                     }
                   ]
                 }

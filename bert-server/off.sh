@@ -20,11 +20,16 @@ pids_on_port() {
         | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u
 }
 
-# 1) the managed user service
-if systemctl --user stop bert-exporter 2>/dev/null; then
-    echo "bert-exporter (user service) stopped."
+# 1) the managed service, in whichever scope it is installed (see on.sh)
+if systemctl cat bert-exporter.service >/dev/null 2>&1; then
+    SCOPE=--system
 else
-    echo "bert-exporter user service not running (or not installed)."
+    SCOPE=--user
+fi
+if systemctl "$SCOPE" stop bert-exporter 2>/dev/null; then
+    echo "bert-exporter ($SCOPE service) stopped."
+else
+    echo "bert-exporter $SCOPE service not running, not installed, or needs root."
 fi
 
 # 2) anything still bound to the BERT metrics port (foreground test, old shell)
