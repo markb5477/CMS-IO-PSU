@@ -7,25 +7,26 @@ exercising the exporter without the DAQ.
 
 The row shape matches Utils/BERTCSVMetricsSink.cc: it cycles boards/hybrids/lines
 and writes the header only when the file is new/empty. Includes the fecUplink/
-fecDownlink columns added at Run_43, with a slowly climbing uplink count so the
-FEC panels have something to draw.
+fecDownlink columns added at Run_43, with a slowly climbing uplink count and a jittering
+downlink optical-power ADC value so the FEC and optical panels have something to draw.
 """
 import argparse
 import os
 import time
 from datetime import datetime, timezone
 
-HEADER = "timestamp,board,hybrid,line,testedBits,errorCount,fecUplink,fecDownlink"
+HEADER = ("timestamp,board,hybrid,line,testedBits,errorCount,fecUplink,fecDownlink,"
+          "opticalPowerDownlink")
 BOARDS = (0,)
 HYBRIDS = (0, 1)
 LINES = range(7)              # PS module: 7 lines
 TESTED_PER_SAMPLE = 10_000_000_000
 
 
-def row(board, hybrid, line, errors, fec_up, fec_down):
+def row(board, hybrid, line, errors, fec_up, fec_down, optical_down):
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return (f"{ts},{board},{hybrid},{line},{TESTED_PER_SAMPLE},{errors},"
-            f"{fec_up},{fec_down}")
+            f"{fec_up},{fec_down},{optical_down}")
 
 
 def main():
@@ -50,7 +51,10 @@ def main():
             # FEC is per optical group, so every hybrid on a board reports the
             # same count - the exporter maxes rather than sums for this reason.
             fec_up = i // len(combos) if h == 1 else 0
-            fh.write(row(b, h, ln, errors, fec_up, 0) + "\n")
+            # received power hovers around a raw ADC count of ~583 with jitter,
+            # dipping on one link so the "lowest link" reduction has something to show
+            optical_down = 583 - (i % 7) - (5 if (h, ln) == (1, 3) else 0)
+            fh.write(row(b, h, ln, errors, fec_up, 0, optical_down) + "\n")
             i += 1
             if not args.live and i >= args.rows:
                 break

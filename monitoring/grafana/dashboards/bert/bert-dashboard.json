@@ -658,6 +658,65 @@
       ]
     },
     {
+      "id": 18,
+      "type": "stat",
+      "title": "Downlink optical power, lowest link (this run)",
+      "description": "Received light at the module, raw lpGBT monitoring-ADC counts (~10-bit, typically ~583) - NOT calibrated to uW. This is the LOWEST reading on any link this run; a falling value is the early sign of a dirty or failing fibre. No alarm threshold is set because the counts are uncalibrated. Empty = the run predates the opticalPowerDownlink column.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cpx-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cpx-prometheus"
+          },
+          "expr": "bert_run_optical_power_downlink_adc_min",
+          "instant": true
+        }
+      ]
+    },
+    {
       "id": 14,
       "type": "timeseries",
       "title": "BER upper limit per link, 95% CL (falls with exposure)",
@@ -668,7 +727,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 12,
+        "y": 16,
         "w": 24,
         "h": 9
       },
@@ -717,7 +776,7 @@
       "id": 7,
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 25,
         "w": 24,
         "h": 9
       },
@@ -769,7 +828,7 @@
       "id": 17,
       "gridPos": {
         "x": 0,
-        "y": 30,
+        "y": 34,
         "w": 24,
         "h": 8
       },
@@ -829,11 +888,52 @@
     },
     {
       "type": "timeseries",
+      "title": "lpGBT downlink optical power per link (raw ADC counts)",
+      "description": "Received light level per link, raw lpGBT monitoring-ADC counts (uncalibrated; higher = more light). Watch for any link trending down.",
+      "id": 19,
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cpx-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "bert_optical_power_downlink_adc",
+          "legendFormat": "b{{board}}/h{{hybrid}}/L{{line}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "lineInterpolation": "stepAfter"
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
       "title": "Error count per link",
       "id": 8,
       "gridPos": {
         "x": 0,
-        "y": 38,
+        "y": 50,
         "w": 12,
         "h": 8
       },
@@ -873,7 +973,7 @@
       "id": 9,
       "gridPos": {
         "x": 12,
-        "y": 38,
+        "y": 50,
         "w": 12,
         "h": 8
       },
@@ -913,7 +1013,7 @@
       "id": 10,
       "gridPos": {
         "x": 0,
-        "y": 46,
+        "y": 58,
         "w": 24,
         "h": 9
       },
@@ -951,6 +1051,12 @@
           "refId": "E",
           "instant": true,
           "format": "table"
+        },
+        {
+          "expr": "bert_optical_power_downlink_adc",
+          "refId": "F",
+          "instant": true,
+          "format": "table"
         }
       ],
       "transformations": [
@@ -985,14 +1091,16 @@
               "Value #B": 4,
               "Value #C": 5,
               "Value #D": 6,
-              "Value #E": 7
+              "Value #E": 7,
+              "Value #F": 8
             },
             "renameByName": {
               "Value #A": "BER",
               "Value #B": "errors",
               "Value #C": "tested bits",
               "Value #D": "FEC up",
-              "Value #E": "FEC down"
+              "Value #E": "FEC down",
+              "Value #F": "optical (ADC)"
             }
           }
         }

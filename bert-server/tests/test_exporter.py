@@ -503,6 +503,112 @@ class FecColumnTest(unittest.TestCase):
         self.assertEqual(doc["run_fec_downlink_max"], 5)
 
 
+class OpticalPowerColumnTest(unittest.TestCase):
+    """opticalPowerDownlink, added at Run_45. Raw ADC counts, per optical group,
+    reduced by the MINIMUM (low power is the failure), and still parseable when
+    the column is absent (older runs) or the read fails."""
+
+    OPT_HEADER = ("timestamp,board,hybrid,line,testedBits,errorCount,"
+                  "fecUplink,fecDownlink,opticalPowerDownlink\n")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.tmp.name, "bertContinuous.csv")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def source(self):
+        return exporter.CsvSource(explicit_path=self.path)
+
+    def test_reads_latest_and_renders(self):
+        write(self.path, self.OPT_HEADER)
+        write(self.path, "2026-07-22T19:56:44Z,0,22,0,324362176,0,0,0,584\n")
+        src = self.source()
+        src.poll()
+        rec = src.get_snapshot()["series"][(0, 22, 0)]
+        self.assertEqual(rec["optical_power_downlink"], 584)
+        text = exporter.render_metrics(src)
+        self.assertIn('bert_optical_power_downlink_adc{board="0",hybrid="22",line="0"} 584', text)
+        self.assertIn("bert_run_optical_power_downlink_adc_min 584", text)
+
+    def test_run_summary_is_minimum_across_links(self):
+        # low power = losing light, so the run figure must be the WORST (lowest)
+        write(self.path, self.OPT_HEADER)
+        write(self.path, "2026-07-22T19:56:44Z,0,22,0,324362176,0,0,0,584\n")
+        write(self.path, "2026-07-22T19:56:44Z,0,23,0,324362176,0,0,0,571\n")
+        src = self.source()
+        src.poll()
+        self.assertEqual(src.get_snapshot()["run_optical_power_downlink_min"], 571)
+
+    def test_run_min_keeps_the_dip_after_recovery(self):
+        write(self.path, self.OPT_HEADER)
+        write(self.path, "2026-07-22T19:56:44Z,0,22,0,324362176,0,0,0,584\n")
+        src = self.source()
+        src.poll()
+        write(self.path, "2026-07-22T19:56:45Z,0,22,0,324362176,0,0,0,560\n")
+        src.poll()
+        write(self.path, "2026-07-22T19:56:46Z,0,22,0,324362176,0,0,0,585\n")
+        src.poll()
+        snap = src.get_snapshot()
+        self.assertEqual(snap["series"][(0, 22, 0)]["optical_power_downlink"], 585)  # latest
+        self.assertEqual(snap["optical"][(0, 22, 0)]["downlink_min"], 560)           # run dip
+
+    def test_absent_column_emits_no_series_and_nan_run_min(self):
+        write(self.path, "2026-07-22T19:56:44Z,0,22,0,324362176,0,0,0\n")   # 8 cols, no optical
+        src = self.source()
+        src.poll()
+        snap = src.get_snapshot()
+        self.assertTrue(math.isnan(snap["run_optical_power_downlink_min"]))
+        text = exporter.render_metrics(src)
+        self.assertIn("bert_run_optical_power_downlink_adc_min NaN", text)
+        self.assertNotIn("bert_optical_power_downlink_adc{", text)
+
+    def test_zero_power_is_a_value_not_absent(self):
+        # 0 counts = no light, which is the alarming case - it must NOT be dropped.
+        write(self.path, self.OPT_HEADER)
+        write(self.path, "2026-07-22T19:56:44Z,0,22,0,324362176,0,0,0,0\n")
+        src = self.source()
+        src.poll()
+        self.assertEqual(src.get_snapshot()["run_optical_power_downlink_min"], 0)
+
+    def test_sentinel_read_becomes_nan_without_voiding_ber(self):
+        write(self.path, self.OPT_HEADER)
+        write(self.path, "2026-07-22T19:56:44Z,0,22,0,324362176,0,0,0,4294967295\n")
+        src = self.source()
+        src.poll()
+        rec = src.get_snapshot()["series"][(0, 22, 0)]
+        self.assertTrue(math.isnan(rec["optical_power_downlink"]))
+        self.assertTrue(rec["valid"])
+        self.assertEqual(rec["ber"], 0.0)
+
+    def test_new_run_resets_optical_min(self):
+        root = self.tmp.name
+        r44 = os.path.join(root, "Run_44", "bertContinuous.csv")
+        r45 = os.path.join(root, "Run_45", "bertContinuous.csv")
+        for path in (r44, r45):
+            os.makedirs(os.path.dirname(path))
+        write(r44, self.OPT_HEADER + "2026-07-22T19:00:00Z,0,22,0,324362176,0,0,0,560\n")
+        src = exporter.CsvSource(results_root=root)
+        src.poll()
+        self.assertEqual(src.get_snapshot()["run_optical_power_downlink_min"], 560)
+        write(r45, self.OPT_HEADER + "2026-07-22T20:00:00Z,0,22,0,324362176,0,0,0,585\n")
+        os.utime(r45, (time.time() + 10, time.time() + 10))
+        src.poll()
+        self.assertEqual(src.get_snapshot()["run_optical_power_downlink_min"], 585)
+
+    def test_optical_in_status_json(self):
+        write(self.path, self.OPT_HEADER)
+        write(self.path, "2026-07-22T19:56:44Z,0,22,0,324362176,0,0,0,584\n")
+        src = self.source()
+        src.poll()
+        doc = json.loads(json.dumps(exporter.status_json(src.get_snapshot())))
+        rec = doc["series"][0]
+        self.assertEqual(rec["optical_power_downlink"], 584)
+        self.assertEqual(rec["optical_downlink_min"], 584)
+        self.assertEqual(doc["run_optical_power_downlink_min"], 584)
+
+
 class PoissonLimitTest(unittest.TestCase):
     def test_zero_errors_is_exact(self):
         self.assertAlmostEqual(exporter.poisson_upper_limit_95(0), 2.995732273553991)

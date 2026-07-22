@@ -11,12 +11,13 @@ an instrument it **follows a CSV file** the DAQ writes.
 `bertContinuous.csv`:
 
 ```
-timestamp,board,hybrid,line,testedBits,errorCount,fecUplink,fecDownlink
-2026-07-20T08:31:00Z,0,0,3,10000000000,12,0,0
+timestamp,board,hybrid,line,testedBits,errorCount,fecUplink,fecDownlink,opticalPowerDownlink
+2026-07-20T08:31:00Z,0,0,3,10000000000,12,0,0,584
 ```
 
-The two `fec*` columns arrived at Run_43. Six-column rows from earlier runs still
-parse; they simply produce no FEC metrics (see "FEC counters" below).
+Columns have been appended over the campaign: `fec*` at Run_43, `opticalPowerDownlink`
+at Run_45. Rows with fewer columns (earlier runs) still parse and simply produce no
+metric for the missing field (see "FEC counters" and "Downlink optical power" below).
 
 Prometheus can't read a file — only HTTP. This exporter bridges the gap:
 
@@ -49,6 +50,9 @@ timeline by scraping this snapshot repeatedly.
 | `bert_fec_uplink{...}`, `bert_fec_downlink{...}` | latest lpGBT FEC correction counts |
 | `bert_fec_uplink_max{...}`, `bert_fec_downlink_max{...}` | worst FEC count per link this run |
 | `bert_run_fec_uplink_max`, `bert_run_fec_downlink_max` | worst FEC count on any link this run |
+| `bert_optical_power_downlink_adc{...}` | latest downlink optical power (raw ADC counts) |
+| `bert_optical_power_downlink_adc_min{...}` | lowest optical power per link this run |
+| `bert_run_optical_power_downlink_adc_min` | lowest optical power on any link this run |
 
 ### FEC counters
 
@@ -76,6 +80,27 @@ unusable can still carry a good FEC read, and vice versa.
 The exporter does not assume whether the register is free-running or reset each
 read — the maximum is the right answer either way (final count if cumulative,
 worst window if not).
+
+### Downlink optical power
+
+`opticalPowerDownlink` (Run_45 on) is the received light level at the module, read
+from the lpGBT monitoring ADC. It is a **raw ADC count** (~10-bit, observed ~583),
+**not** a calibrated power — there is no µW conversion in the CSV, so the metric
+name carries an explicit `_adc` suffix and no panel claims a physical unit.
+
+It mirrors the FEC handling with two deliberate differences:
+
+- **Reduced by the minimum, not the maximum.** For received power *low* is the
+  failure — a link losing light — so the run figure is the lowest reading on any
+  link, and no colour threshold is set (the counts are uncalibrated, so any amber
+  line would be a guess).
+- **0 is a real, alarming value** (no light), so it is kept, never treated as
+  "absent". Absent means the column isn't in the row at all, which yields no
+  series and a NaN run minimum. An all-ones read failure still maps to NaN, judged
+  independently of the BER sample.
+
+Per optical group like FEC, so not summed — the value repeats across the hybrid
+rows sharing a group.
 
 ### Why the run totals exist
 

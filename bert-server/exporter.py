@@ -109,6 +109,14 @@ def max_or_nan(values):
     return max(finite) if finite else float("nan")
 
 
+def min_or_nan(values):
+    """Smallest of the finite values, or NaN if there are none. The reduction
+    for received optical power, where LOW is the concerning direction (a link
+    losing light), unlike the error/FEC counts where high is bad."""
+    finite = [v for v in values if isinstance(v, (int, float)) and math.isfinite(v)]
+    return min(finite) if finite else float("nan")
+
+
 def ber_limit(tested, errors):
     """95% CL upper limit on the bit error rate for `errors` seen in `tested` bits.
 
@@ -156,6 +164,12 @@ class CsvSource:
         # writes the same value on every hybrid row sharing that group and a sum
         # would multiply-count it.
         self.fec = {}
+        # per (board, hybrid, line) -> {"downlink_min"}: the LOWEST received
+        # downlink optical power seen this run. Raw lpGBT monitoring-ADC counts
+        # (~10-bit; observed ~583), not a calibrated power - there is no uW
+        # conversion in the CSV. Per optical group like FEC, so not summed; and
+        # reduced with the minimum because a link *losing* light is the failure.
+        self.optical = {}
         self.path = None          # file currently being followed
         self.inode = None
         self.offset = 0           # bytes consumed so far in self.path
@@ -211,6 +225,7 @@ class CsvSource:
                 return
             fec_up = optional_count(parts, 6)
             fec_down = optional_count(parts, 7)
+            optical_down = optional_count(parts, 8)
         except (ValueError, IndexError):
             self.parse_errors += 1
             return
@@ -227,8 +242,10 @@ class CsvSource:
 
         # The FEC counters carry the same all-ones read-failure sentinel, but judged
         # on their own: a row whose BER is unusable can still hold a good FEC read.
+        # The optical-power ADC read is judged the same independent way.
         fec_up = self._fec_value(fec_up)
         fec_down = self._fec_value(fec_down)
+        optical_down = self._fec_value(optical_down)
 
         self.series[(board, hybrid, line_no)] = {
             "error_count": nan if error_bad else errors,
@@ -238,6 +255,7 @@ class CsvSource:
             "valid": valid,
             "fec_uplink": fec_up,       # None when the column isn't in this run's CSV
             "fec_downlink": fec_down,
+            "optical_power_downlink": optical_down,   # raw ADC counts; None if absent
         }
         if fec_up is not None or fec_down is not None:
             run_fec = self.fec.setdefault((board, hybrid, line_no),
@@ -245,6 +263,10 @@ class CsvSource:
                                            "downlink_max": float("nan")})
             run_fec["uplink_max"] = max_or_nan([run_fec["uplink_max"], fec_up])
             run_fec["downlink_max"] = max_or_nan([run_fec["downlink_max"], fec_down])
+        if optical_down is not None:
+            run_opt = self.optical.setdefault((board, hybrid, line_no),
+                                              {"downlink_min": float("nan")})
+            run_opt["downlink_min"] = min_or_nan([run_opt["downlink_min"], optical_down])
         # Accumulate only measurements we trust; a sentinel row would otherwise add
         # a bogus 4-billion errors (or a nonsense window) to the run total, and the
         # totals are exactly what the BER limit is computed from.
@@ -278,6 +300,7 @@ class CsvSource:
                     # over, not inherit the previous run's accumulated bits.
                     self.totals = {}
                     self.fec = {}
+                    self.optical = {}
                     self.rows = 0
                 offset = self.offset
 
@@ -318,6 +341,7 @@ class CsvSource:
             series = {k: dict(v) for k, v in self.series.items()}
             totals = {k: dict(v) for k, v in self.totals.items()}
             fec = {k: dict(v) for k, v in self.fec.items()}
+            optical = {k: dict(v) for k, v in self.optical.items()}
             last_ts = max((v["ts"] for v in series.values()), default=0.0)
             run_tested = sum(v["tested"] for v in totals.values())
             run_errors = sum(v["errors"] for v in totals.values())
@@ -326,6 +350,7 @@ class CsvSource:
             return {
                 "totals": totals,
                 "fec": fec,
+                "optical": optical,
                 "run_tested_bits": run_tested,
                 "run_errors": run_errors,
                 "run_ber_limit_95": ber_limit(run_tested, run_errors),
@@ -333,6 +358,9 @@ class CsvSource:
                 # repeated across the hybrid rows that share it (see self.fec).
                 "run_fec_uplink_max": max_or_nan(v["uplink_max"] for v in fec.values()),
                 "run_fec_downlink_max": max_or_nan(v["downlink_max"] for v in fec.values()),
+                # lowest received power on any link: low is the failure direction.
+                "run_optical_power_downlink_min": min_or_nan(
+                    v["downlink_min"] for v in optical.values()),
                 "up": self.up,
                 "file_present": self.file_present,
                 "path": self.path,
@@ -395,10 +423,11 @@ def status_json(snap):
     """A JSON-serialisable view of a snapshot: the series dict is keyed by a
     (board,hybrid,line) tuple, which json.dumps can't encode, so flatten it to a
     sorted list of per-link records; NaN/Inf become null."""
-    skip = ("series", "totals", "fec")
+    skip = ("series", "totals", "fec", "optical")
     out = {k: _json_scalar(v) for k, v in snap.items() if k not in skip}
     totals = snap.get("totals", {})
     fec = snap.get("fec", {})
+    optical = snap.get("optical", {})
     out["series"] = [
         {"board": b, "hybrid": h, "line": ln,
          **{k: _json_scalar(v) for k, v in rec.items()},
@@ -406,7 +435,9 @@ def status_json(snap):
          **{"total_" + k: _json_scalar(v)
             for k, v in sorted(totals.get((b, h, ln), {}).items())},
          **{"fec_" + k: _json_scalar(v)
-            for k, v in sorted(fec.get((b, h, ln), {}).items())}}
+            for k, v in sorted(fec.get((b, h, ln), {}).items())},
+         **{"optical_" + k: _json_scalar(v)
+            for k, v in sorted(optical.get((b, h, ln), {}).items())}}
         for (b, h, ln), rec in sorted(snap["series"].items())
     ]
     return out
@@ -494,6 +525,25 @@ def render_metrics(source):
                      "Highest downlink FEC correction count seen on this link this run",
                      "downlink_max")
 
+    # --- lpGBT downlink optical power --------------------------------------
+    # Received light level, read from the lpGBT monitoring ADC (raw counts,
+    # ~10-bit, observed ~583; NOT a calibrated power - no uW conversion exists in
+    # the CSV). Falling power is the early sign of a dirty/failing fibre, so the
+    # run figure is the MINIMUM on any link, not the max. Per optical group, so
+    # not summed - the same value repeats across hybrid rows.
+    metric("bert_run_optical_power_downlink_adc_min",
+           "Lowest downlink optical power (raw lpGBT ADC counts) on any link this "
+           "run; low = losing light (NaN if the CSV has no opticalPowerDownlink column)",
+           "gauge", [("", _fmt(snap["run_optical_power_downlink_min"]))])
+
+    optical = sorted(snap["optical"].items())
+    if optical:
+        metric("bert_optical_power_downlink_adc_min",
+               "Lowest downlink optical power (raw ADC counts) seen on this link this run",
+               "gauge",
+               [(f'{{board="{b}",hybrid="{h}",line="{ln}"}}', _fmt(v["downlink_min"]))
+                for (b, h, ln), v in optical])
+
     totals = sorted(snap["totals"].items())
     if totals:
         def per_link_total(name, help_text, key, mtype, fmt=_fmt):
@@ -545,6 +595,10 @@ def render_metrics(source):
         per_link_optional("bert_fec_downlink",
                           "fecDownlink of the latest sample (NaN if the counter read failed)",
                           "fec_downlink")
+        per_link_optional("bert_optical_power_downlink_adc",
+                          "Downlink optical power of the latest sample (raw lpGBT ADC "
+                          "counts; NaN if the read failed)",
+                          "optical_power_downlink")
     return "\n".join(out) + "\n"
 
 

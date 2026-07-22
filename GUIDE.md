@@ -282,6 +282,12 @@ What you should see, and what is normal:
   count is degradation nothing else on the dashboard reveals. The two FEC tiles
   go amber on any correction at all; that is a "look at it", not a spec limit.
   Empty tiles mean the run predates the columns, not that FEC is clean.
+- **Downlink optical power ~583.** From Run_45 the CSV carries the received light
+  level per link as a raw lpGBT ADC count (uncalibrated, ~10-bit, so ~583 is
+  normal — it is not µW). The "lowest link this run" tile is the one to watch:
+  *falling* power is the early sign of a dirty or failing fibre. There is no
+  colour threshold because the counts aren't calibrated to a spec. Empty = the run
+  predates the column.
 
 To rehearse any of this without the DAQ, feed the exporter a fake CSV:
 
