@@ -63,12 +63,33 @@ ROWS=$(curl -s "$PROM/api/v1/query?query=pslog_file_rows" 2>/dev/null \
 if [ -n "$ROWS" ]; then ok "data landing: $ROWS rows parsed from the current log"
 else bad "no pslog_* samples in Prometheus yet"; fi
 
-# 4. Grafana
+# 4. Grafana. Separate "wrong login" from "no dashboards": they look identical on
+# /api/search (both yield nothing usable) but have completely different fixes.
 if curl -sf "$GRAF/api/health" >/dev/null 2>&1; then
-    N=$(curl -s -u "${GRAFANA_ADMIN_USER:-username}:${GRAFANA_ADMIN_PASSWORD:-password}" \
-        "$GRAF/api/search?query=" 2>/dev/null | grep -c '"type":"dash-db"' || true)
-    if [ "${N:-0}" -gt 0 ] 2>/dev/null; then ok "Grafana up, ${N} dashboard(s) provisioned"
-    else warn "Grafana up but no dashboard provisioned (or the login in .env is wrong)"; fi
+    GUSER="${GRAFANA_ADMIN_USER:-username}"
+    BODY=$(mktemp)
+    CODE=$(curl -s -o "$BODY" -w '%{http_code}' \
+        -u "$GUSER:${GRAFANA_ADMIN_PASSWORD:-password}" "$GRAF/api/search?query=" 2>/dev/null)
+    case "$CODE" in
+        200)
+            N=$(grep -c '"type":"dash-db"' "$BODY" || true)
+            if [ "${N:-0}" -gt 0 ] 2>/dev/null
+            then ok "Grafana up, ${N} dashboard(s) provisioned"
+            else
+                warn "Grafana up, login OK, but NO dashboard loaded"
+                echo "         docker logs pslog-grafana 2>&1 | grep -i 'provision\|dashboard'"
+            fi ;;
+        401|403)
+            warn "Grafana up but the login in .env is rejected (HTTP $CODE, user '$GUSER')"
+            echo "         Grafana seeds its admin account on FIRST start only, so a"
+            echo "         password changed in .env afterwards does NOT take effect."
+            echo "         reset it:  docker exec -it pslog-grafana grafana cli \\"
+            echo "                      admin reset-admin-password '<new>'"
+            echo "         or wipe and re-seed from .env:"
+            echo "                    ./off.sh && docker volume rm pslog-monitoring_grafana-data && ./on.sh" ;;
+        *)  warn "Grafana /api/search returned HTTP $CODE" ;;
+    esac
+    rm -f "$BODY"
 else
     bad "Grafana not answering on $GRAF"
 fi
