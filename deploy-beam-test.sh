@@ -3,10 +3,18 @@
 #
 #   monitoring_beam_test/ -> prometheus-tk:/root/monitoring_beam_test/
 #
-# Same bastion trick as deploy-remote.sh: lxtunnel wants a password + 2nd factor
-# on every connection, so we open ONE multiplexed master up front and run the
-# rsync over it. (~/.ssh/config already sets ProxyJump + ControlMaster for
-# prometheus-tk.)
+# lxtunnel wants a password + 2nd factor on every connection, so we open ONE
+# multiplexed master up front and run the rsync through it.
+#
+# deploy-remote.sh assumes ~/.ssh/config sets ControlMaster for lxtunnel; it does
+# not (that block only sets AddressFamily), which is why deploys prompt twice.
+# Rather than edit a personal config from a repo script, we generate a throwaway
+# config that adds the multiplexing and then Includes the real one - ssh takes
+# the FIRST value it sees for a key, so these win and everything else (ProxyJump,
+# IdentityFile, ...) still comes from ~/.ssh/config. It matters that the setting
+# lands in a *config file*: the rsync reaches prometheus-tk via ProxyJump, and
+# that inner hop to lxtunnel is a separate ssh process which -o on our command
+# line would never reach.
 #
 # This node already runs the CPX stack out of /root/monitoring on :9090/:3000.
 # This one is a SEPARATE compose project on :9091/:3001 with its own volumes, so
@@ -53,12 +61,29 @@ case "$TARGET_IN_CFG" in
         [ "${ans:-N}" = y ] || exit 1 ;;
 esac
 
-# Close the shared bastion master on the way out (or if we bail).
-cleanup() { ssh -O exit "$BASTION" 2>/dev/null || true; }
+SSH_CONF=$(mktemp)
+SOCK="${TMPDIR:-/tmp}/beamdeploy-%r@%h:%p"
+# The Include MUST sit under `Host *`: an Include inside the lxtunnel block is
+# only processed for that host, which would leave prometheus-tk with no ProxyJump.
+cat > "$SSH_CONF" <<CONF
+Host lxtunnel.cern.ch
+    ControlMaster auto
+    ControlPath $SOCK
+    ControlPersist 120
+
+Host *
+    Include ~/.ssh/config
+CONF
+
+# Close the shared bastion master and drop the temp config on the way out.
+cleanup() {
+    ssh -F "$SSH_CONF" -O exit "$BASTION" 2>/dev/null || true
+    rm -f "$SSH_CONF"
+}
 trap cleanup EXIT
 
-echo "==> opening lxtunnel master (enter password + 2nd factor once)..."
-ssh -fN "$BASTION"
+echo "==> opening lxtunnel master (enter password + 2nd factor ONCE)..."
+ssh -F "$SSH_CONF" -fN "$BASTION"
 
 echo "==> monitoring_beam_test/ -> $MONITOR_TARGET:$REMOTE_DIR/"
 # --delete keeps the far end an exact mirror, with three carve-outs:
@@ -66,6 +91,7 @@ echo "==> monitoring_beam_test/ -> $MONITOR_TARGET:$REMOTE_DIR/"
 #   tunnel/id_*        the SSH key, generated ON the node and never sent from here
 #   .playwright-mcp    local screenshot scratch
 rsync -av "${DRY[@]}" --delete \
+    -e "ssh -F $SSH_CONF" \
     --exclude='.env' \
     --exclude='__pycache__' --exclude='*.pyc' \
     --exclude='tunnel/id_ed25519' --exclude='tunnel/id_ed25519.pub' \
