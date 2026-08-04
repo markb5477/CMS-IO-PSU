@@ -1,4 +1,4 @@
-# monitoring-pslog — Prometheus + Grafana for the pscontrol PS log
+# monitoring_beam_test — Prometheus + Grafana for the pscontrol PS log
 
 Monitoring for the power supplies on **pccmsbril06**, read from the values log
 that [pscontrol](https://gitlab.cern.ch/mpari/pscontrol)'s monitor writes.
