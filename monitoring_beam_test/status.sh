@@ -20,6 +20,21 @@ echo "=== containers ==="
 docker compose --profile tunnel ps --format '  {{.Name}}  {{.Status}}' 2>/dev/null \
     || bad "docker compose not answering"
 
+# Run straight after ./on.sh and everything below reads as broken: Grafana needs
+# ~15s to boot and Prometheus has not loaded its targets or evaluated a rule yet.
+# So if the containers are up but the APIs are not answering, wait rather than
+# report a fleeting startup state as a fault.
+if docker inspect -f '{{.State.Running}}' pslog-prometheus 2>/dev/null | grep -q true; then
+    for i in $(seq 1 30); do
+        curl -sf "$PROM/-/ready" >/dev/null 2>&1 && curl -sf "$GRAF/api/health" >/dev/null 2>&1 && break
+        [ "$i" = 1 ] && printf '  waiting for Prometheus and Grafana to become ready'
+        printf '.'
+        sleep 2
+        [ "$i" = 30 ] && echo " giving up (they are genuinely not coming up)"
+    done
+    [ "$i" -gt 1 ] && [ "$i" -lt 30 ] && echo " ready"
+fi
+
 echo
 echo "=== the chain, end to end ==="
 
