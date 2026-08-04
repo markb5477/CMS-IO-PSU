@@ -1,0 +1,69 @@
+# Prometheus + Grafana for the pscontrol PS monitoring log (pccmsbril06).
+#
+# A SIBLING of ../monitoring, not a replacement: its own compose project name,
+# container names, ports and volumes, so both stacks can run on the same monitor
+# host at once without touching each other's data.
+#   ./on.sh   -> docker compose up -d
+#   ./off.sh  -> docker compose down
+# Values interpolated from .env (copy .env.example to .env on the host).
+name: pslog-monitoring
+
+services:
+  # SSH forward to the pscontrol host. Direct scraping of :9822 is firewalled and
+  # the exporter binds 127.0.0.1 by default, so Prometheus scrapes this sidecar
+  # (pslog-tunnel:9822) instead. Needs tunnel/id_ed25519 here and its .pub in
+  # the remote user's authorized_keys on pccmsbril06.
+  #
+  # PS_EXPORTER_ADDR=0.0.0.0 on the far end + a firewall opening would let you
+  # drop this service and point PSLOG_EXPORTER_TARGET straight at the host.
+  pslog-tunnel:
+    build: ./tunnel
+    container_name: pslog-tunnel
+    restart: unless-stopped
+    environment:
+      - SSH_TARGET=${TUNNEL_SSH_TARGET:-mbrandt@pccmsbril06.cern.ch}
+      - REMOTE_HOSTPORT=${TUNNEL_REMOTE_HOSTPORT:-127.0.0.1:9822}
+      - LOCAL_PORT=9822
+    volumes:
+      - ./tunnel/id_ed25519:/tunnel/id_ed25519:ro
+    profiles: ["tunnel"]        # `--profile tunnel`; omitted for a direct/local target
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: pslog-prometheus
+    restart: unless-stopped
+    extra_hosts:
+      # lets PSLOG_EXPORTER_TARGET point at the docker host (host.docker.internal)
+      # when the exporter runs there directly instead of behind the tunnel
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${PROMETHEUS_PORT:-9091}:9090"
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 180d ~= 6 months. The monitor writes a row every ~7 s across 11 channels;
+      # at a 10 s scrape that is ~60 series and stays well under 1 GB.
+      - --storage.tsdb.retention.time=180d
+      - --web.enable-lifecycle
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: pslog-grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+  grafana-data:

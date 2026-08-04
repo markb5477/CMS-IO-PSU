@@ -1,0 +1,89 @@
+# Alert rules for the pscontrol PS-log monitoring.
+#
+# Every threshold below is derived from the real lab_cosmic_crocs logs
+# (16 runs, 356,113 rows, 2026-07-06 .. 2026-08-02) rather than guessed - the
+# measured figure is quoted on each rule so it can be re-checked when the setup
+# changes. Deliberately few rules: pscontrol already emails on a trip
+# (psmap.check_for_issues), so these cover what that cannot see.
+groups:
+  - name: ps_log_health
+    rules:
+      - alert: PSLogExporterDown
+        expr: up{job="ps_log"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ps_exporter on the pscontrol host is not answering scrapes"
+          description: "The monitor may be stopped, or the SSH tunnel is down. Power supplies are unaffected - only the metrics path is."
+
+      - alert: PSMonitorNotRunning
+        expr: pslog_up == 1 and pslog_file_present == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ps_exporter is up but found no values log to follow"
+          description: "Nothing has written a *_values_*.log. Check `ps_run -a monitor` / ps-monitor.service on the pscontrol host."
+
+      # Measured cadence over 356,097 real intervals: min 6 s, median 7 s, max 9 s.
+      # 60 s is ~7x the worst ever observed, so this only fires on a genuine stall.
+      - alert: PSMonitorStalled
+        expr: pslog_up == 1 and pslog_last_sample_timestamp_seconds > 0
+              and (time() - pslog_last_sample_timestamp_seconds) > 60
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PS monitoring has not written a row in >60s (measured cadence is 6-9s)"
+          description: "The monitor process is hung or an instrument read is blocking. No monitoring means no trip email either."
+
+      - alert: PSLogParseErrors
+        expr: increase(pslog_parse_errors_total[15m]) > 0
+              or increase(pslog_misaligned_rows_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The values log has rows the exporter cannot read"
+          description: "Zero of either occurred across 356k real rows, so this means the log format changed (a config change mid-run?) or writes are being truncated."
+
+  - name: ps_log_supplies
+    rules:
+      # HV leakage measured across all runs: median 0.3-1.3 uA per channel,
+      # worst single reading 2.38 uA (CROC3D-HV). 5 uA is ~2x that worst case -
+      # a rising sensor leakage current shows up here long before a trip.
+      - alert: HVLeakageHigh
+        expr: abs(pslog_current_amps{kind="HV"}) > 5e-6
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.channel }} leakage {{ $value | humanize }}A exceeds 5 uA (worst observed: 2.4 uA)"
+          description: "Sensor leakage climbing well above its historical envelope - check for irradiation damage, humidity, or a bad connection."
+
+      # A Keithley with its output OFF logs its setpoint voltage and exactly 0 A,
+      # so "biasing" cannot be read from the voltage alone - only the current
+      # distinguishes the two. CROCR19-HV really did sit like this for 854 rows.
+      - alert: HVOutputOff
+        expr: pslog_current_amps{kind="HV"} == 0
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "{{ $labels.channel }} is not biasing (current is exactly 0)"
+          description: "The logged voltage is the SETPOINT, not a measurement. Expected while ramping or parked; unexpected during a cosmic run."
+
+      # CROC LV sits at 1.609-1.631 V whenever it is on; the excursions in the
+      # archive go down to 1.256 V. 100 mV off nominal is comfortably outside
+      # normal operation but inside the observed sag, so it catches a real droop
+      # without firing on ordinary ripple.
+      - alert: CROCLowVoltage
+        expr: pslog_voltage_volts{kind="LV", channel=~"CROC.*"} > 0.5
+              and abs(pslog_voltage_volts{kind="LV", channel=~"CROC.*"} - 1.62) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.channel }} LV is {{ $value | humanize }}V, off the 1.62 V nominal"
+          description: "Observed operating band is 1.609-1.631 V. A sustained droop points at current limiting or a connection problem."

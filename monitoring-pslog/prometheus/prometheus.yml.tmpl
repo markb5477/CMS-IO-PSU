@@ -1,0 +1,20 @@
+# Prometheus config for the pscontrol PS-log monitoring stack.
+# Generated from prometheus.yml.tmpl by ../render.sh - edit the template, not the output.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # ps_exporter, started automatically by `ps_run -a monitor` on the pscontrol host.
+  # The monitor writes a row every ~7 s (measured over 356k real rows), so scraping
+  # much faster than that only re-reads the same snapshot.
+  - job_name: ps_log
+    scrape_interval: ${PSLOG_SCRAPE_INTERVAL}
+    static_configs:
+      - targets: ["${PSLOG_EXPORTER_TARGET}"]
+        labels:
+          setup: ${SETUP}
+          location: ${LOCATION}

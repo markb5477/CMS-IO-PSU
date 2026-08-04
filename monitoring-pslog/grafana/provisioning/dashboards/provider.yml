@@ -1,0 +1,14 @@
+# Load dashboard JSON on startup from /var/lib/grafana/dashboards/pslog.
+apiVersion: 1
+
+providers:
+  - name: pslog
+    orgId: 1
+    folder: PS Monitoring
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/pslog
+      foldersFromFilesStructure: false

@@ -1,0 +1,12 @@
+# Auto-provision the Prometheus datasource. The uid matches the one baked into
+# the dashboard JSON so panels resolve without a manual import.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: pslog-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
