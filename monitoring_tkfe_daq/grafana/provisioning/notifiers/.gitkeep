@@ -1,0 +1,2 @@
+# Grafana insists on finding this directory and logs an error at startup if it
+# is missing. Nothing here on purpose - alert rules live in prometheus/alerts.yml.

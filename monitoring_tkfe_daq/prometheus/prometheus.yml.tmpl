@@ -1,0 +1,36 @@
+# Prometheus config for the tk-fe-daq test-beam monitoring stack.
+# EDIT .env AND RUN ../render.sh - this template is the source, prometheus.yml
+# next to it is generated output and is overwritten every time.
+global:
+  scrape_interval: ${DAQ_SCRAPE_INTERVAL}
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # The DAQ metrics, served by scripts/prometheus_exposer.py on the DAQ PC out of
+  # the .prom file that ext_trigger_daq_double_readout_v2 --metrics-file rewrites
+  # once per spill. Prometheus adds instance="<host:port>" per target, so several
+  # DAQ PCs land as separate series on the same panels.
+  - job_name: tkfe_daq
+    scrape_interval: ${DAQ_SCRAPE_INTERVAL}
+    scrape_timeout: ${DAQ_SCRAPE_TIMEOUT}
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+${DAQ_TARGET_LINES}
+        # Attached to every sample of this job. NOT global external_labels -
+        # those are only added on federation/remote-write/alerting, never to the
+        # locally stored series, so they would be invisible in Grafana.
+        labels:
+          setup: ${SETUP}
+          location: ${LOCATION}
+          beamtest: ${BEAMTEST}
+
+  # Prometheus watching itself. Cheap, and it is what makes the TSDB size /
+  # retention / "is anything being ingested" panels and ./check.sh work.
+  - job_name: prometheus
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["localhost:9090"]

@@ -1,0 +1,63 @@
+# Alert rules for the tk-fe-daq test-beam stack.
+#
+# There is no Alertmanager in this stack on purpose - one less moving part at a
+# beam line. The rules still fire and are visible in Prometheus > Alerts and on
+# the "Problems" panel of the Grafana dashboard, which is what a shifter looks at.
+#
+# The three failure modes are deliberately kept apart, because they need
+# different people to fix them:
+#   up == 0                       -> NETWORK / exposer process   (monitor side)
+#   tkfe_exposer_file_present == 0 -> exposer running, no .prom file (DAQ side)
+#   last_update age climbing      -> DAQ process wedged or run finished (DAQ side)
+groups:
+  - name: tkfe_daq_link
+    rules:
+      - alert: TkfeExporterDown
+        expr: up{job="tkfe_daq"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Cannot scrape the DAQ exposer at {{ $labels.instance }}"
+          description: "Network path or exposer process is gone. Run ./check.sh on the monitor PC, and confirm prometheus_exposer.py is still running on the DAQ PC."
+
+      - alert: TkfeNoMetricsFile
+        expr: tkfe_exposer_file_present == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Exposer at {{ $labels.instance }} is up but has no .prom file"
+          description: "prometheus_exposer.py is serving, but the path it was given does not exist yet. Either no run has started, or it was pointed at the wrong --metrics-file / run directory."
+
+  - name: tkfe_daq_run
+    rules:
+      # The DAQ stamps tkfe_daq_last_update_timestamp_seconds on every spill.
+      # Without this rule a crashed DAQ serves its last values forever and looks
+      # perfectly healthy on every other panel.
+      - alert: TkfeDaqStalled
+        expr: tkfe_exposer_file_present == 1 and (time() - tkfe_daq_last_update_timestamp_seconds) > 600
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No new spill from {{ $labels.instance }} for >10 min"
+          description: "The metrics file has not been rewritten. Normal between runs; suspicious during a spill-on period."
+
+      - alert: TkfeFifoFull
+        expr: tkfe_daq_fifo_full == 1
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "FIFO was full at readout on {{ $labels.instance }} - the spill was TRUNCATED"
+          description: "Words were dropped in firmware before readout. Occupancy/trigger rate too high for the drain, or the readout loop is being starved."
+
+      - alert: TkfeReadoutSlow
+        expr: tkfe_daq_readout_seconds > 30
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Spill readout on {{ $labels.instance }} is taking {{ $value }} s"
+          description: "Readout is no longer keeping up with the spill cycle; expect truncated spills next."

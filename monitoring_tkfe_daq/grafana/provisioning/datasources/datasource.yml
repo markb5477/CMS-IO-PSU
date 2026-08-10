@@ -1,0 +1,17 @@
+# Auto-provision the Prometheus datasource. The uid matches the one baked into
+# grafana/dashboards/tkfe/tkfe-daq-dashboard.json, so the panels resolve with no
+# manual import and no datasource picker on first login.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: tkfe-prometheus
+    type: prometheus
+    access: proxy
+    # container-to-container on the compose network, NOT localhost
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # must match DAQ_SCRAPE_INTERVAL in .env, or rate() windows come out wrong
+      timeInterval: 5s

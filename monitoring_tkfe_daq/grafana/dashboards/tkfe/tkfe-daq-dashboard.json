@@ -1,0 +1,1087 @@
+{
+  "title": "tk-fe-daq - test beam",
+  "uid": "tkfe-daq",
+  "description": "DAQ metrics written per spill by ext_trigger_daq_double_readout_v2 (--metrics-file) and served by scripts/prometheus_exposer.py. Counters restart at zero on every new run: read the rate panels for activity, the totals for the current run only.",
+  "editable": true,
+  "refresh": "5s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "tags": [
+    "tkfe",
+    "daq",
+    "testbeam",
+    "tracker"
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "instance",
+        "label": "DAQ PC",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "tkfe-prometheus"
+        },
+        "definition": "label_values(up{job=\"tkfe_daq\"}, instance)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(up{job=\"tkfe_daq\"}, instance)",
+          "refId": "A"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Scrape link",
+      "description": "Can Prometheus reach the exposer at all? DOWN = network or exposer process. Run ./check.sh.",
+      "id": 1,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tkfe-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"tkfe_daq\", instance=~\"$instance\"}",
+          "refId": "A",
+          "instant": true,
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "UP",
+                  "color": "green",
+                  "index": 0
+                },
+                "0": {
+                  "text": "DOWN",
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Metrics file",
+      "description": "MISSING = the exposer is running but the .prom file it was pointed at does not exist. Wrong --metrics-file path, or no run started yet.",
+      "id": 2,
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tkfe-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "tkfe_exposer_file_present{instance=~\"$instance\"}",
+          "refId": "A",
+          "instant": true,
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "PRESENT",
+                  "color": "green",
+                  "index": 0
+                },
+                "0": {
+                  "text": "MISSING",
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Since last spill",
+      "description": "Age of the DAQ's own timestamp. Without this a crashed DAQ would keep serving its last values and look perfectly healthy everywhere else.",
+      "id": 3,
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tkfe-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "time() - tkfe_daq_last_update_timestamp_seconds{instance=~\"$instance\"}",
+          "refId": "A",
+          "instant": true,
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 120
+              },
+              {
+                "color": "red",
+                "value": 600
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "FIFO at readout",
+      "description": "1 = a FIFO was at its ceiling when the last spill was read, i.e. firmware dropped words before we ever saw them. That spill is truncated.",
+      "id": 4,
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tkfe-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "tkfe_daq_fifo_full{instance=~\"$instance\"}",
+          "refId": "A",
+          "instant": true,
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "OK",
+                  "color": "green",
+                  "index": 0
+                },
+                "1": {
+                  "text": "TRUNCATED",
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Spills this run",
+      "description": "Resets to zero when a new DAQ process starts.",
+      "id": 5,
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tkfe-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "tkfe_daq_spills_total{instance=~\"$instance\"}",
+          "refId": "A",
+          "instant": true,
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Triggers this run",
+      "description": "Accumulated from the 16-bit firmware counter's per-spill deltas, so it survives wraps. Stays at zero on firmware without the testbeam trigger counter.",
+      "id": 6,
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tkfe-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "tkfe_daq_triggers_total{instance=~\"$instance\"}",
+          "refId": "A",
+          "instant": true,
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Beam activity",
+      "id": 101,
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Trigger rate",
+      "description": "rate() over 1 min. Handles the counter reset at the start of each run, so a new run shows as a gap, not a negative spike.",
+      "id": 7,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tkfe-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(tkfe_daq_triggers_total{instance=~\"$instance\"}[1m])",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "hertz",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "gradientMode": "none"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Readout rate (words/s)",
+      "description": "rate() over 1 min of the total words drained from the daqpath plus the per-chip streams.",
+      "id": 8,
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tkfe-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(tkfe_daq_words_total{instance=~\"$instance\"}[1m])",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "gradientMode": "none"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Words in the last spill",
+      "description": "Per-spill payload size. A step change here without a beam change usually means a module dropped out of readout.",
+      "id": 9,
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tkfe-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "tkfe_daq_words_last_spill{instance=~\"$instance\"}",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 8,
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "gradientMode": "none"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Readout duration per spill",
+      "description": "Wall-clock time to drain the FIFOs for the most recent spill. Climbing towards the spill period is the warning sign before FIFO-full truncation.",
+      "id": 10,
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tkfe-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "tkfe_daq_readout_seconds{instance=~\"$instance\"}",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "auto",
+            "pointSize": 8,
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "gradientMode": "none"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Spills completed (this run)",
+      "id": 11,
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tkfe-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "tkfe_daq_spills_total{instance=~\"$instance\"}",
+          "refId": "A",
+          "legendFormat": "spills {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "gradientMode": "none"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Words per trigger",
+      "description": "rate(words) / rate(triggers) over 5 min - occupancy proxy. Gaps while no triggers arrive are expected, not an error.",
+      "id": 12,
+      "gridPos": {
+        "x": 8,
+        "y": 21,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tkfe-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(tkfe_daq_words_total{instance=~\"$instance\"}[5m]) / rate(tkfe_daq_triggers_total{instance=~\"$instance\"}[5m])",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0,
+            "gradientMode": "none"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "type": "state-timeline",
+      "title": "Truncated spills (FIFO full)",
+      "description": "Red bands are periods where the last-read spill had a full FIFO. Anything red means data loss in firmware.",
+      "id": 13,
+      "gridPos": {
+        "x": 16,
+        "y": 21,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tkfe-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "tkfe_daq_fifo_full{instance=~\"$instance\"}",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "ok",
+                  "color": "green",
+                  "index": 0
+                },
+                "1": {
+                  "text": "truncated",
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "mergeValues": true,
+        "showValue": "auto",
+        "alignValue": "center",
+        "rowHeight": 0.9,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Monitoring health (this stack)",
+      "id": 102,
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": true,
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Scrape link over time",
+          "description": "1 = scrape succeeded. Gaps/zeros are network drops between this PC and the DAQ PC - useful evidence when data looks patchy.",
+          "id": 14,
+          "gridPos": {
+            "x": 0,
+            "y": 30,
+            "w": 12,
+            "h": 7
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "tkfe-prometheus"
+          },
+          "targets": [
+            {
+              "expr": "up{job=\"tkfe_daq\", instance=~\"$instance\"}",
+              "refId": "A",
+              "legendFormat": "{{instance}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "max": 1,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "stepAfter",
+                "lineWidth": 2,
+                "fillOpacity": 20,
+                "showPoints": "never",
+                "spanNulls": false,
+                "gradientMode": "none"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          }
+        },
+        {
+          "type": "stat",
+          "title": "History retained",
+          "description": "Age of the oldest sample still in the TSDB. Grows until it reaches the retention window set by PROM_RETENTION in .env (7d by default), then holds there.",
+          "id": 15,
+          "gridPos": {
+            "x": 12,
+            "y": 30,
+            "w": 6,
+            "h": 7
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "tkfe-prometheus"
+          },
+          "targets": [
+            {
+              "expr": "time() - (prometheus_tsdb_lowest_timestamp_seconds > 0)",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "decimals": 1,
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "none",
+            "graphMode": "none",
+            "textMode": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "type": "stat",
+          "title": "TSDB on disk",
+          "description": "Against the PROM_RETENTION_SIZE cap in .env.",
+          "id": 16,
+          "gridPos": {
+            "x": 18,
+            "y": 30,
+            "w": 6,
+            "h": 7
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "tkfe-prometheus"
+          },
+          "targets": [
+            {
+              "expr": "prometheus_tsdb_storage_blocks_bytes + prometheus_tsdb_head_chunks_storage_size_bytes",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "decimals": 1,
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "none",
+            "graphMode": "none",
+            "textMode": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "type": "text",
+          "title": "If a panel is empty",
+          "id": 17,
+          "gridPos": {
+            "x": 0,
+            "y": 37,
+            "w": 24,
+            "h": 6
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "Run **`./check.sh`** in `monitoring_tkfe_daq/` on the Prometheus host - it walks the whole chain and names the broken hop.\n\n| Symptom | Where it breaks |\n|---|---|\n| **Scrape link = DOWN** | network, or `prometheus_exposer.py` is not running on the DAQ PC |\n| **Metrics file = MISSING** | exposer is up but pointed at a path the DAQ is not writing (`--metrics-file`) |\n| **Since last spill climbing** | DAQ process finished or wedged; the exposer keeps serving the last file |\n| **Everything empty, link UP** | wait one scrape interval, then check the `instance` picker at the top |\n\nCounters (`spills`, `triggers`, `words`) restart at 0 for every new DAQ run - that is expected, and `rate()` handles it."
+          }
+        }
+      ]
+    }
+  ]
+}

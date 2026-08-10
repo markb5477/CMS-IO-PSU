@@ -1,0 +1,81 @@
+# Portable Prometheus + Grafana stack for the tk-fe-daq test-beam DAQ metrics.
+# Runs anywhere with Docker; move the folder to another box and it comes up the same.
+#   ./install.sh -> dependencies
+#   ./render.sh  -> bake .env into prometheus/prometheus.yml
+#   ./on.sh      -> docker compose up -d
+#   ./off.sh     -> docker compose down   (data is KEPT)
+# Every value is interpolated from .env (copy .env.example to .env first).
+name: tkfe-daq-monitoring
+
+services:
+  # OPTIONAL sidecar, only started when USE_TUNNEL=yes (compose profile "tunnel",
+  # which ./on.sh adds for you). Holds an autossh connection to the DAQ PC and
+  # republishes its 127.0.0.1:9110 as host "daq-tunnel" on the compose network,
+  # for when the DAQ PC cannot be scraped directly. Needs tunnel/id_ed25519.
+  daq-tunnel:
+    build: ./tunnel
+    container_name: tkfe-daq-tunnel
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    environment:
+      # a default, not ${VAR:?...}: compose interpolates the whole file even when
+      # this profile is off, so a required var here would break plain ./on.sh.
+      # on.sh does the real check before it activates the profile.
+      - SSH_TARGET=${TUNNEL_SSH_TARGET:-user@daq-pc}
+      - REMOTE_HOSTPORT=${TUNNEL_REMOTE_HOSTPORT:-127.0.0.1:9110}
+      - LOCAL_PORT=9110
+      - SSH_EXTRA_OPTS=${TUNNEL_SSH_EXTRA_OPTS:-}
+    volumes:
+      - ./tunnel/id_ed25519:/tunnel/id_ed25519:ro
+
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:latest}
+    container_name: tkfe-prometheus
+    restart: unless-stopped
+    ports:
+      - "${WEB_BIND_ADDR:-0.0.0.0}:${PROMETHEUS_PORT:-9092}:9090"
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    # host.docker.internal is not resolvable by default on Linux; this makes the
+    # "exposer on this same box" form of DAQ_EXPORTER_TARGETS work everywhere.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # *** one week of history (PROM_RETENTION in .env) ***
+      - --storage.tsdb.retention.time=${PROM_RETENTION:-7d}
+      - --storage.tsdb.retention.size=${PROM_RETENTION_SIZE:-5GB}
+      # lets ./reload.sh apply a new prometheus.yml without dropping the TSDB
+      - --web.enable-lifecycle
+
+  grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:latest}
+    container_name: tkfe-grafana
+    restart: unless-stopped
+    ports:
+      - "${WEB_BIND_ADDR:-0.0.0.0}:${GRAFANA_PORT:-3002}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      # control-room screen: GRAFANA_ANON=yes -> dashboard opens with no login
+      - GF_AUTH_ANONYMOUS_ENABLED=${GRAFANA_ANON_ENABLED:-false}
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      # no phone-home; the beam-line network usually cannot reach grafana.com
+      # anyway, and the failing check delays the UI on every start.
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  # Named volumes: ./off.sh leaves them alone, so the week of history is still
+  # there (hot, immediately queryable) after a restart. ./off.sh --wipe resets.
+  prometheus-data:
+  grafana-data:

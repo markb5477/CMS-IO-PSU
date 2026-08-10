@@ -1,0 +1,15 @@
+# Load dashboard JSON from disk on startup. Drop another .json into
+# dashboards/tkfe/ and it shows up within updateIntervalSeconds - no import step.
+apiVersion: 1
+
+providers:
+  - name: tkfe
+    orgId: 1
+    folder: TK FE DAQ
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/tkfe
+      foldersFromFilesStructure: false
